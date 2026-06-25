@@ -23,25 +23,20 @@ class CreateWorkerSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data):
-        phone = validated_data["phone"]
-        full_name = validated_data["full_name"]
-        password = validated_data["password"]
         photo = validated_data["photo"]
 
-        # Yuzni aniqlash
         encoding = get_face_encoding(photo)
         if encoding is None:
             raise serializers.ValidationError(
                 {"photo": "Rasmda yuz topilmadi. Iltimos, aniq yuz rasmi yuklang."}
             )
 
-        # Atomik: foydalanuvchi + yuz profili birga yaratiladi
         with transaction.atomic():
             user = User.objects.create_user(
-                phone=phone,
-                password=password,
-                full_name=full_name,
-                role="worker",  # Har doim WORKER
+                phone=validated_data["phone"],
+                password=validated_data["password"],
+                full_name=validated_data["full_name"],
+                role="worker",
             )
             FaceProfile.objects.create(
                 user=user,
@@ -60,43 +55,88 @@ class CreateWorkerSerializer(serializers.Serializer):
         }
 
 
+# ─────────────────────────────────────────────────────────────────
+# CheckInSerializer — ikkita rejim:
+#   1) EMBEDDING rejimi  → mobil ML model ishlatadi
+#      { user_id, embedding, latitude*, longitude* }   (* optional)
+#
+#   2) PHOTO rejimi → eski server-side face_recognition
+#      { photo, latitude, longitude }
+# ─────────────────────────────────────────────────────────────────
 class CheckInSerializer(serializers.Serializer):
-    """Check-in uchun kiruvchi ma'lumotlar."""
-    user_id = serializers.IntegerField(required=False)
+    # ── Embedding rejimi maydonlari ──
+    user_id = serializers.IntegerField(
+        required=False,
+        help_text="Embedding rejimida ixtiyoriy — token orqali ham aniqlanadi.",
+    )
     embedding = serializers.ListField(
         child=serializers.FloatField(),
         required=False,
         allow_empty=False,
+        help_text="Mobildan kelgan 128 ta float vektor (L2-normalized).",
     )
-    photo = serializers.ImageField(required=False)
-    latitude = serializers.FloatField(required=False)
-    longitude = serializers.FloatField(required=False)
+
+    # ── Photo rejimi maydoni ──
+    photo = serializers.ImageField(
+        required=False,
+        help_text="Server-side yuz tahlili uchun rasm fayli.",
+    )
+
+    # ── Ikkala rejimda ham qabul qilinadigan lokatsiya ──
+    latitude = serializers.FloatField(
+        required=False,
+        help_text="GPS kenglik. Embedding rejimida ixtiyoriy, photo rejimida majburiy.",
+    )
+    longitude = serializers.FloatField(
+        required=False,
+        help_text="GPS uzunlik. Embedding rejimida ixtiyoriy, photo rejimida majburiy.",
+    )
 
     def validate(self, attrs):
-        has_embedding = "embedding" in attrs and attrs.get("embedding") is not None
-        has_photo = "photo" in attrs and attrs.get("photo") is not None
+        has_embedding = bool(attrs.get("embedding"))
+        has_photo = bool(attrs.get("photo"))
 
+        # ── Hech biri yuborilmagan ──
+        if not has_embedding and not has_photo:
+            raise serializers.ValidationError(
+                {"detail": "'embedding' yoki 'photo' maydonlaridan biri yuborilishi shart."}
+            )
+
+        # ── Ikkisi birga yuborilgan — buni taqiqlaymiz ──
+        if has_embedding and has_photo:
+            raise serializers.ValidationError(
+                {"detail": "'embedding' va 'photo' bir vaqtda yuborib bo'lmaydi."}
+            )
+
+        # ── Embedding rejimi validatsiyasi ──
         if has_embedding:
             if len(attrs["embedding"]) != 128:
                 raise serializers.ValidationError(
-                    {"embedding": "Embedding 128 ta sondan iborat bo'lishi kerak."}
+                    {"embedding": f"Embedding 128 ta sondan iborat bo'lishi kerak. Keldi: {len(attrs['embedding'])}."}
                 )
-            return attrs
-
-        if has_photo:
-            if "latitude" not in attrs or "longitude" not in attrs:
+            # Lokatsiya ixtiyoriy — agar biri yuborilsa ikkalasi ham kerak
+            has_lat = "latitude" in attrs and attrs["latitude"] is not None
+            has_lon = "longitude" in attrs and attrs["longitude"] is not None
+            if has_lat != has_lon:
                 raise serializers.ValidationError(
-                    {"detail": "Photo-based check-in uchun latitude va longitude zarur."}
+                    {"detail": "Lokatsiya uchun latitude va longitude ikkalasi ham yuborilishi kerak."}
                 )
-            return attrs
 
-        raise serializers.ValidationError(
-            {"detail": "Embedding yoki photo bilan check-in yuboring."}
-        )
+        # ── Photo rejimi validatsiyasi ──
+        if has_photo:
+            if "latitude" not in attrs or attrs.get("latitude") is None:
+                raise serializers.ValidationError(
+                    {"latitude": "Photo rejimida latitude majburiy."}
+                )
+            if "longitude" not in attrs or attrs.get("longitude") is None:
+                raise serializers.ValidationError(
+                    {"longitude": "Photo rejimida longitude majburiy."}
+                )
+
+        return attrs
 
 
 class WorkZoneSerializer(serializers.ModelSerializer):
-    """Ish hududi CRUD serializer."""
     class Meta:
         model = WorkZone
         fields = ["id", "name", "latitude", "longitude", "radius_meters", "is_active"]
@@ -104,7 +144,6 @@ class WorkZoneSerializer(serializers.ModelSerializer):
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
-    """Davomat yozuvi (o'qish uchun)."""
     user_phone = serializers.CharField(source="user.phone", read_only=True)
     user_full_name = serializers.CharField(source="user.full_name", read_only=True)
 
