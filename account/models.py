@@ -11,7 +11,9 @@ class CustomUserManager(BaseUserManager):
     def create_user(self, phone, password=None , **extra_fields):
         if not phone:
             raise ValueError("Telefon raqam kiritilishi shart")
-        phone = self.normalize_email(phone)
+        phone = str(phone).strip()
+        if not phone.startswith("+998"):
+            raise ValueError("Telefon raqam +998 bilan boshlanishi shart")
         extra_fields.setdefault("role", RoleChoices.WORKER)
         user = self.model(phone=phone ,**extra_fields)
         user.set_password(password)

@@ -42,6 +42,12 @@ class RegisterSerializers(serializers.ModelSerializer):
             },
         }
 
+    def validate_phone(self, value):
+        phone = str(value).strip()
+        if not phone.startswith("+998"):
+            raise serializers.ValidationError("Telefon raqam +998 bilan boshlanishi shart.")
+        return phone
+
     def create(self, validated_data):
         password = validated_data.pop("password")
         user = User.objects.create_user(password=password, **validated_data)

@@ -16,11 +16,14 @@ class CreateWorkerSerializer(serializers.Serializer):
     photo = serializers.ImageField(write_only=True)
 
     def validate_phone(self, value):
-        if User.objects.filter(phone=value).exists():
+        phone = str(value).strip()
+        if not phone.startswith("+998"):
+            raise serializers.ValidationError("Telefon raqam +998 bilan boshlanishi shart.")
+        if User.objects.filter(phone=phone).exists():
             raise serializers.ValidationError(
                 "Bu telefon raqam allaqachon ro'yxatdan o'tgan."
             )
-        return value
+        return phone
 
     def create(self, validated_data):
         photo = validated_data["photo"]
