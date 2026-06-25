@@ -1,8 +1,9 @@
-from drf_spectacular.utils import OpenApiExample, extend_schema
-from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, parsers, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from django.contrib.auth import get_user_model
 
 from core.permissions import IsAdmin
 
@@ -13,7 +14,9 @@ from .serializers import (
     CreateWorkerSerializer,
     WorkZoneSerializer,
 )
-from .services import compare_faces, is_inside_zone
+from .services import calculate_cosine_similarity, compare_faces, is_inside_zone
+
+User = get_user_model()
 
 
 # ─────────────────────────────────────────────
@@ -90,24 +93,70 @@ class CheckInView(APIView):
         serializer = CheckInSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        if "embedding" in serializer.validated_data:
+            user_id = serializer.validated_data.get("user_id") or request.user.id
+            user = User.objects.filter(pk=user_id).first()
+            if user is None:
+                return Response(
+                    {"detail": "Bunday foydalanuvchi topilmadi."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            if not hasattr(user, "face_profile"):
+                return Response(
+                    {"detail": "Avval yuz ro'yxatdan o'tkazilmagan."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            similarity = calculate_cosine_similarity(
+                user.face_profile.encoding,
+                serializer.validated_data["embedding"],
+            )
+            is_success = similarity >= 0.85
+
+            Attendance.objects.create(
+                user=user,
+                latitude=0.0,
+                longitude=0.0,
+                distance_meters=0.0,
+                face_verified=is_success,
+                location_verified=False,
+                is_success=is_success,
+            )
+
+            if is_success:
+                message = "Davomat muvaffaqiyatli qayd etildi."
+                status_code = status.HTTP_200_OK
+            else:
+                message = "Yuz mos kelmadi."
+                status_code = status.HTTP_401_UNAUTHORIZED
+
+            return Response(
+                {
+                    "success": is_success,
+                    "face_verified": is_success,
+                    "location_verified": False,
+                    "similarity": round(similarity, 4),
+                    "message": message,
+                },
+                status=status_code,
+            )
+
         user = request.user
         photo = serializer.validated_data["photo"]
         latitude = serializer.validated_data["latitude"]
         longitude = serializer.validated_data["longitude"]
 
-        # Yuz profili mavjudligini tekshirish
         if not hasattr(user, "face_profile"):
             return Response(
                 {"detail": "Avval yuz ro'yxatdan o'tkazilmagan."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # STEP 1: Yuzni solishtirish
         face_matched, face_distance = compare_faces(
             user.face_profile.encoding, photo
         )
 
-        # STEP 2: Joylashuvni tekshirish
         zone = WorkZone.objects.filter(is_active=True).first()
         if zone is None:
             return Response(
@@ -116,11 +165,8 @@ class CheckInView(APIView):
             )
 
         in_zone, distance_meters = is_inside_zone(latitude, longitude, zone)
-
-        # Natija
         is_success = face_matched and in_zone
 
-        # Davomat yozuvini saqlash (muvaffaqiyatli bo'lmasa ham)
         Attendance.objects.create(
             user=user,
             latitude=latitude,
@@ -131,7 +177,6 @@ class CheckInView(APIView):
             is_success=is_success,
         )
 
-        # Xabar tayyorlash
         if is_success:
             message = "Davomat muvaffaqiyatli qayd etildi."
         elif not face_matched and not in_zone:
@@ -179,3 +224,4 @@ class AttendanceListView(generics.ListAPIView):
     queryset = Attendance.objects.select_related("user").all()
     serializer_class = AttendanceSerializer
     permission_classes = [IsAdmin]
+

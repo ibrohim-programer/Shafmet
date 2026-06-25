@@ -62,9 +62,37 @@ class CreateWorkerSerializer(serializers.Serializer):
 
 class CheckInSerializer(serializers.Serializer):
     """Check-in uchun kiruvchi ma'lumotlar."""
-    photo = serializers.ImageField()
-    latitude = serializers.FloatField()
-    longitude = serializers.FloatField()
+    user_id = serializers.IntegerField(required=False)
+    embedding = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        allow_empty=False,
+    )
+    photo = serializers.ImageField(required=False)
+    latitude = serializers.FloatField(required=False)
+    longitude = serializers.FloatField(required=False)
+
+    def validate(self, attrs):
+        has_embedding = "embedding" in attrs and attrs.get("embedding") is not None
+        has_photo = "photo" in attrs and attrs.get("photo") is not None
+
+        if has_embedding:
+            if len(attrs["embedding"]) != 128:
+                raise serializers.ValidationError(
+                    {"embedding": "Embedding 128 ta sondan iborat bo'lishi kerak."}
+                )
+            return attrs
+
+        if has_photo:
+            if "latitude" not in attrs or "longitude" not in attrs:
+                raise serializers.ValidationError(
+                    {"detail": "Photo-based check-in uchun latitude va longitude zarur."}
+                )
+            return attrs
+
+        raise serializers.ValidationError(
+            {"detail": "Embedding yoki photo bilan check-in yuboring."}
+        )
 
 
 class WorkZoneSerializer(serializers.ModelSerializer):
