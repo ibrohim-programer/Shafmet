@@ -71,45 +71,20 @@ class CheckInSerializer(serializers.Serializer):
         required=False,
         help_text="Foydalanuvchi IDsi. Ixtiyoriy — token orqali ham aniqlanadi.",
     )
-    embedding = serializers.ListField(
-        child=serializers.FloatField(),
-        required=False,
-        allow_empty=False,
-        help_text="Mobildan kelgan 128 ta float vektor (L2-normalized).",
-    )
-
-    # ── Photo rejimi maydoni ──
     photo = serializers.ImageField(
-        required=False,
+        required=True,
         help_text="Server-side yuz tahlili uchun rasm fayli.",
     )
-
-    # ── Ikkala rejimda ham qabul qilinadigan lokatsiya ──
     latitude = serializers.FloatField(
-        required=False,
-        help_text="GPS kenglik. Embedding rejimida ixtiyoriy, photo rejimida majburiy.",
+        required=True,
+        help_text="GPS kenglik.",
     )
     longitude = serializers.FloatField(
-        required=False,
-        help_text="GPS uzunlik. Embedding rejimida ixtiyoriy, photo rejimida majburiy.",
+        required=True,
+        help_text="GPS uzunlik.",
     )
 
     def validate(self, attrs):
-        has_embedding = bool(attrs.get("embedding"))
-        has_photo = bool(attrs.get("photo"))
-
-        # ── Hech biri yuborilmagan ──
-        if not has_embedding and not has_photo:
-            raise serializers.ValidationError(
-                {"detail": "'embedding' yoki 'photo' maydonlaridan biri yuborilishi shart."}
-            )
-
-        # ── Ikkisi birga yuborilgan — buni taqiqlaymiz ──
-        if has_embedding and has_photo:
-            raise serializers.ValidationError(
-                {"detail": "'embedding' va 'photo' bir vaqtda yuborib bo'lmaydi."}
-            )
-
         # ── Foydalanuvchini aniqlash tekshiruvi ──
         request = self.context.get("request")
         user_id = attrs.get("user_id")
@@ -119,32 +94,8 @@ class CheckInSerializer(serializers.Serializer):
                 {"detail": "Foydalanuvchini aniqlash uchun token yoki 'user_id' yuborilishi shart."}
             )
 
-        # ── Embedding rejimi validatsiyasi ──
-        if has_embedding:
-            if len(attrs["embedding"]) != 128:
-                raise serializers.ValidationError(
-                    {"embedding": f"Embedding 128 ta sondan iborat bo'lishi kerak. Keldi: {len(attrs['embedding'])}."}
-                )
-            # Lokatsiya ixtiyoriy — agar biri yuborilsa ikkalasi ham kerak
-            has_lat = "latitude" in attrs and attrs["latitude"] is not None
-            has_lon = "longitude" in attrs and attrs["longitude"] is not None
-            if has_lat != has_lon:
-                raise serializers.ValidationError(
-                    {"detail": "Lokatsiya uchun latitude va longitude ikkalasi ham yuborilishi kerak."}
-                )
-
-        # ── Photo rejimi validatsiyasi ──
-        if has_photo:
-            if "latitude" not in attrs or attrs.get("latitude") is None:
-                raise serializers.ValidationError(
-                    {"latitude": "Photo rejimida latitude majburiy."}
-                )
-            if "longitude" not in attrs or attrs.get("longitude") is None:
-                raise serializers.ValidationError(
-                    {"longitude": "Photo rejimida longitude majburiy."}
-                )
-
         return attrs
+
 
 
 

@@ -64,88 +64,30 @@ class CreateWorkerView(APIView):
 # ─────────────────────────────────────────────
 class CheckInView(APIView):
     """
-    Ishchi check-in qiladi.
-
-    REJIM A — Embedding (mobil tomondan ML model):
-        Content-Type: application/json
-        {
-            "user_id": 42,                          ← ixtiyoriy (token bo'lsa shart emas)
-            "embedding": [0.21, -0.84, 0.13, ...], ← 128 ta float, L2-normalized
-            "latitude": 41.311081,                  ← ixtiyoriy
-            "longitude": 69.240562                  ← ixtiyoriy
-        }
-
-    REJIM B — Photo (server-side face_recognition):
-        Content-Type: multipart/form-data
-        photo=<file>, latitude=41.31, longitude=69.24
+    Ishchi check-in qiladi (rasm fayli yuborish orqali).
     """
     permission_classes = [permissions.AllowAny]
-    parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
     @extend_schema(
         tags=["Inspection - Attendance"],
-        summary="Ishchi check-in (embedding yoki rasm)",
+        summary="Ishchi check-in (rasm yuklash orqali)",
         description=(
-            "**Rejim A — Embedding (tavsiya etiladi):** Mobil ML model yuz embeddingini "
-            "hisoblab JSON formatda yuboradi. Lokatsiya ixtiyoriy.\n\n"
-            "**Rejim B — Photo:** Rasm server tomonida tahlil qilinadi. "
-            "Lokatsiya majburiy."
+            "Ishchi yuz rasmini yuboradi. Server tomonida face_recognition kutubxonasi "
+            "yordamida bazadagi rasm bilan solishtiriladi va GPS joylashuvi tekshiriladi."
         ),
         request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "user_id":   {"type": "integer", "example": 42},
-                    "embedding": {
-                        "type": "array",
-                        "items": {"type": "number"},
-                        "minItems": 128,
-                        "maxItems": 128,
-                        "example": [0.21, -0.84, 0.13, 0.67, -0.45, 0.92],
-                    },
-                    "latitude":  {"type": "number", "example": 41.311081},
-                    "longitude": {"type": "number", "example": 69.240562},
-                },
-                "required": ["embedding"],
-            },
             "multipart/form-data": {
                 "type": "object",
                 "properties": {
-                    "photo":     {"type": "string", "format": "binary"},
-                    "latitude":  {"type": "number", "example": 41.311081},
-                    "longitude": {"type": "number", "example": 69.240562},
+                    "user_id":   {"type": "integer", "description": "Foydalanuvchi IDsi (Ixtiyoriy — token bo'lsa shart emas)", "example": 42},
+                    "photo":     {"type": "string", "format": "binary", "description": "Xodimning yuz rasmi"},
+                    "latitude":  {"type": "number", "example": 41.311081, "description": "Kenglik koordinatasi"},
+                    "longitude": {"type": "number", "example": 69.240562, "description": "Uzunlik koordinatasi"},
                 },
                 "required": ["photo", "latitude", "longitude"],
             },
         },
-        examples=[
-            OpenApiExample(
-                "Embedding rejimi (muvaffaqiyatli)",
-                value={
-                    "success": True,
-                    "face_verified": True,
-                    "location_verified": True,
-                    "similarity": 0.9234,
-                    "distance_meters": 45.2,
-                    "message": "Davomat muvaffaqiyatli qayd etildi.",
-                },
-                response_only=True,
-                status_codes=["200"],
-            ),
-            OpenApiExample(
-                "Yuz mos kelmadi",
-                value={
-                    "success": False,
-                    "face_verified": False,
-                    "location_verified": True,
-                    "similarity": 0.6102,
-                    "distance_meters": 30.5,
-                    "message": "Yuz mos kelmadi.",
-                },
-                response_only=True,
-                status_codes=["401"],
-            ),
-        ],
         responses={
             200: {
                 "type": "object",
@@ -153,7 +95,6 @@ class CheckInView(APIView):
                     "success":           {"type": "boolean"},
                     "face_verified":     {"type": "boolean"},
                     "location_verified": {"type": "boolean"},
-                    "similarity":        {"type": "number", "description": "Cosine similarity (0–1)"},
                     "distance_meters":   {"type": "number"},
                     "message":           {"type": "string"},
                 },
@@ -162,102 +103,10 @@ class CheckInView(APIView):
         },
     )
     def post(self, request, *args, **kwargs):
-        serializer = CheckInSerializer(data=request.data)
+        serializer = CheckInSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        if data.get("embedding"):
-            return self._handle_embedding(request, data)
-
-        return self._handle_photo(request, data)
-
-    # ── REJIM A: Embedding ────────────────────────────────────────────
-    def _handle_embedding(self, request, data):
-        """
-        Mobildan kelgan 128-o'lchamli embedding vektori bilan
-        DBdagi profil vektori cosine similarity orqali solishtiriladi.
-        """
-        # Foydalanuvchini aniqlash: avval token, keyin user_id
-        user_id = data.get("user_id") or (request.user.id if request.user.is_authenticated else None)
-        user = User.objects.filter(pk=user_id).select_related("face_profile").first()
-
-        if user is None:
-            return Response(
-                {"detail": "Bunday foydalanuvchi topilmadi."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        if not hasattr(user, "face_profile"):
-            return Response(
-                {"detail": "Avval yuz ro'yxatdan o'tkazilmagan."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        # ── Cosine similarity hisoblash ──
-        similarity = calculate_cosine_similarity(
-            user.face_profile.encoding,
-            data["embedding"],
-        )
-        face_verified = similarity >= FACE_SIMILARITY_THRESHOLD
-
-        # ── Lokatsiya tekshiruvi (yuborilgan bo'lsa) ──
-        latitude  = data.get("latitude")
-        longitude = data.get("longitude")
-        location_verified = False
-        distance_meters   = 0.0
-
-        if latitude is not None and longitude is not None:
-            zone = WorkZone.objects.filter(is_active=True).first()
-            if zone:
-                location_verified, distance_meters = is_inside_zone(
-                    latitude, longitude, zone
-                )
-                distance_meters = round(distance_meters, 2)
-
-        # Umumiy muvaffaqiyat: yuz + (lokatsiya yuborilgan bo'lsa u ham)
-        has_location = latitude is not None
-        is_success = face_verified and (location_verified if has_location else True)
-
-        # ── Davomat yozuvi ──
-        Attendance.objects.create(
-            user=user,
-            latitude=latitude  or 0.0,
-            longitude=longitude or 0.0,
-            distance_meters=distance_meters,
-            face_verified=face_verified,
-            location_verified=location_verified,
-            is_success=is_success,
-        )
-
-        # ── Javob xabari ──
-        if is_success:
-            message = "Davomat muvaffaqiyatli qayd etildi."
-            http_status = status.HTTP_200_OK
-        elif not face_verified:
-            message = "Yuz mos kelmadi."
-            http_status = status.HTTP_401_UNAUTHORIZED
-        else:
-            message = "Siz ish hududidan tashqaridasiz."
-            http_status = status.HTTP_401_UNAUTHORIZED
-
-        return Response(
-            {
-                "success":           is_success,
-                "face_verified":     face_verified,
-                "location_verified": location_verified,
-                "similarity":        round(similarity, 4),
-                "distance_meters":   distance_meters,
-                "message":           message,
-            },
-            status=http_status,
-        )
-
-    # ── REJIM B: Photo (server-side face_recognition) ─────────────────
-    def _handle_photo(self, request, data):
-        """
-        Rasm serverda face_recognition kutubxonasi orqali tahlil qilinadi.
-        Lokatsiya ham tekshiriladi.
-        """
         user_id = data.get("user_id") or (request.user.id if request.user.is_authenticated else None)
         user = User.objects.filter(pk=user_id).select_related("face_profile").first()
 
@@ -333,6 +182,7 @@ class CheckInView(APIView):
             },
             status=status.HTTP_200_OK if is_success else status.HTTP_401_UNAUTHORIZED,
         )
+
 
 
 # ─────────────────────────────────────────────
