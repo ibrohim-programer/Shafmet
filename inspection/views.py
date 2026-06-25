@@ -14,7 +14,7 @@ from .serializers import (
     CreateWorkerSerializer,
     WorkZoneSerializer,
 )
-from .services import calculate_cosine_similarity, compare_faces, is_inside_zone
+from .services import calculate_cosine_similarity, compare_faces, compare_faces_direct, is_inside_zone
 
 User = get_user_model()
 
@@ -79,7 +79,7 @@ class CheckInView(APIView):
         Content-Type: multipart/form-data
         photo=<file>, latitude=41.31, longitude=69.24
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
 
     @extend_schema(
@@ -178,7 +178,7 @@ class CheckInView(APIView):
         DBdagi profil vektori cosine similarity orqali solishtiriladi.
         """
         # Foydalanuvchini aniqlash: avval token, keyin user_id
-        user_id = data.get("user_id") or request.user.id
+        user_id = data.get("user_id") or (request.user.id if request.user.is_authenticated else None)
         user = User.objects.filter(pk=user_id).select_related("face_profile").first()
 
         if user is None:
@@ -258,10 +258,14 @@ class CheckInView(APIView):
         Rasm serverda face_recognition kutubxonasi orqali tahlil qilinadi.
         Lokatsiya ham tekshiriladi.
         """
-        user      = request.user
-        photo     = data["photo"]
-        latitude  = data["latitude"]
-        longitude = data["longitude"]
+        user_id = data.get("user_id") or (request.user.id if request.user.is_authenticated else None)
+        user = User.objects.filter(pk=user_id).select_related("face_profile").first()
+
+        if user is None:
+            return Response(
+                {"detail": "Bunday foydalanuvchi topilmadi."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         if not hasattr(user, "face_profile"):
             return Response(
@@ -269,10 +273,23 @@ class CheckInView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Yuz solishtirish ──
-        face_matched, face_distance = compare_faces(
-            user.face_profile.encoding, photo
-        )
+        photo     = data["photo"]
+        latitude  = data["latitude"]
+        longitude = data["longitude"]
+
+        # ── Yuz solishtirish (Birinchi navbatda bazadagi real rasm bilan, xatolik bo'lsa encoding bilan) ──
+        face_matched = False
+        face_distance = 999.0
+        
+        # 1. Real rasm fayli bilan solishtirishga urinish
+        res = compare_faces_direct(user.face_profile.photo.path, photo)
+        if res is not None:
+            face_matched, face_distance = res
+        else:
+            # 2. Agar bazadagi rasm bo'lmasa yoki xato bo'lsa, saqlangan encoding bilan solishtirish
+            face_matched, face_distance = compare_faces(
+                user.face_profile.encoding, photo
+            )
 
         # ── Ish hududi tekshiruvi ──
         zone = WorkZone.objects.filter(is_active=True).first()
@@ -314,7 +331,7 @@ class CheckInView(APIView):
                 "distance_meters":   round(distance_meters, 2),
                 "message":           message,
             },
-            status=status.HTTP_200_OK,
+            status=status.HTTP_200_OK if is_success else status.HTTP_401_UNAUTHORIZED,
         )
 
 

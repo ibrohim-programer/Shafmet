@@ -67,10 +67,9 @@ class CreateWorkerSerializer(serializers.Serializer):
 #      { photo, latitude, longitude }
 # ─────────────────────────────────────────────────────────────────
 class CheckInSerializer(serializers.Serializer):
-    # ── Embedding rejimi maydonlari ──
     user_id = serializers.IntegerField(
         required=False,
-        help_text="Embedding rejimida ixtiyoriy — token orqali ham aniqlanadi.",
+        help_text="Foydalanuvchi IDsi. Ixtiyoriy — token orqali ham aniqlanadi.",
     )
     embedding = serializers.ListField(
         child=serializers.FloatField(),
@@ -111,6 +110,15 @@ class CheckInSerializer(serializers.Serializer):
                 {"detail": "'embedding' va 'photo' bir vaqtda yuborib bo'lmaydi."}
             )
 
+        # ── Foydalanuvchini aniqlash tekshiruvi ──
+        request = self.context.get("request")
+        user_id = attrs.get("user_id")
+        is_authenticated = request and request.user and request.user.is_authenticated
+        if not is_authenticated and not user_id:
+            raise serializers.ValidationError(
+                {"detail": "Foydalanuvchini aniqlash uchun token yoki 'user_id' yuborilishi shart."}
+            )
+
         # ── Embedding rejimi validatsiyasi ──
         if has_embedding:
             if len(attrs["embedding"]) != 128:
@@ -137,6 +145,7 @@ class CheckInSerializer(serializers.Serializer):
                 )
 
         return attrs
+
 
 
 class WorkZoneSerializer(serializers.ModelSerializer):

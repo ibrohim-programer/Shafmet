@@ -58,6 +58,36 @@ def compare_faces(known_encoding, new_image_file, tolerance=0.45):
     return matched, distance
 
 
+def compare_faces_direct(stored_image_file, new_image_file, tolerance=0.45):
+    """
+    Bazadagi rasm fayli (real data) bilan yangi rasmdagi yuzni solishtirish.
+    Returns: (matched: bool, distance: float) yoki agar bazadagi rasm yuklanmasa None
+    """
+    try:
+        # Bazadagi rasmdan encoding olish
+        stored_image = face_recognition.load_image_file(stored_image_file)
+        stored_encodings = face_recognition.face_encodings(stored_image)
+        if not stored_encodings:
+            return None
+        
+        # Yangi rasmdan encoding olish
+        new_image = face_recognition.load_image_file(new_image_file)
+        new_encodings = face_recognition.face_encodings(new_image)
+        if not new_encodings:
+            return False, 999.0
+        
+        known_array = np.array(stored_encodings[0])
+        new_array = np.array(new_encodings[0])
+        
+        # Evklid masofasi
+        distance = float(np.linalg.norm(known_array - new_array))
+        matched = distance <= tolerance
+        return matched, distance
+    except Exception:
+        return None
+
+
+
 def haversine_distance(lat1, lon1, lat2, lon2):
     """
     Ikki nuqta orasidagi masofani metrda hisoblash (Haversine formulasi).
