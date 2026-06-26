@@ -4,8 +4,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
-from core.permissions import IsAdmin
+from core.permissions import IsAdmin, IsAdminOrManager, IsWorker
 
 from .models import Attendance, WorkZone
 from .serializers import (
@@ -13,6 +14,7 @@ from .serializers import (
     CheckInSerializer,
     CreateWorkerSerializer,
     WorkZoneSerializer,
+    WorkerDetailSerializer,
 )
 from .services import calculate_cosine_similarity, compare_faces, compare_faces_direct, is_inside_zone
 
@@ -141,14 +143,24 @@ class CheckInView(APIView):
             )
 
         # ── Ish hududi tekshiruvi ──
-        zone = WorkZone.objects.filter(is_active=True).first()
-        if zone is None:
+        active_zones = WorkZone.objects.filter(is_active=True)
+        if not active_zones.exists():
             return Response(
                 {"detail": "Faol ish hududi topilmadi. Admin bilan bog'laning."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        in_zone, distance_meters = is_inside_zone(latitude, longitude, zone)
+        in_zone = False
+        min_distance = float('inf')
+
+        for zone in active_zones:
+            inside, dist = is_inside_zone(latitude, longitude, zone)
+            if dist < min_distance:
+                min_distance = dist
+            if inside:
+                in_zone = True
+
+        distance_meters = min_distance
         is_success = face_matched and in_zone
 
         # ── Davomat yozuvi ──
@@ -186,26 +198,161 @@ class CheckInView(APIView):
 
 
 # ─────────────────────────────────────────────
-# 3. Ish hududlarini boshqarish (admin)
+# 3. Ish hududlarini boshqarish (admin/manager)
 # ─────────────────────────────────────────────
 @extend_schema(
     tags=["Inspection - Work Zones"],
-    summary="Ish hududlari ro'yxati va yaratish",
+    summary="Ish hududlari ro'yxati va yaratish (Admin/Manager)",
 )
 class WorkZoneListCreateView(generics.ListCreateAPIView):
     queryset = WorkZone.objects.all()
     serializer_class = WorkZoneSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrManager]
+
+
+@extend_schema(
+    tags=["Inspection - Work Zones"],
+    summary="Ish hududini ko'rish, tahrirlash va o'chirish (Admin/Manager)",
+)
+class WorkZoneRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = WorkZone.objects.all()
+    serializer_class = WorkZoneSerializer
+    permission_classes = [IsAdminOrManager]
 
 
 # ─────────────────────────────────────────────
-# 4. Davomat ro'yxati (admin)
+# 4. Ishchilarni boshqarish (admin/manager)
+# ─────────────────────────────────────────────
+@extend_schema(
+    tags=["Inspection - Workers"],
+    summary="Ishchilar ro'yxati (Admin/Manager)",
+)
+class WorkerListView(generics.ListAPIView):
+    serializer_class = WorkerDetailSerializer
+    permission_classes = [IsAdminOrManager]
+
+    def get_queryset(self):
+        queryset = User.objects.filter(role="worker").select_related("face_profile").order_by("-created_at")
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search) | Q(phone__icontains=search)
+            )
+        return queryset
+
+
+@extend_schema(
+    tags=["Inspection - Workers"],
+    summary="Ishchi ma'lumotlarini ko'rish, yangilash va o'chirish (Admin/Manager)",
+)
+class WorkerRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = User.objects.filter(role="worker").select_related("face_profile")
+    serializer_class = WorkerDetailSerializer
+    permission_classes = [IsAdminOrManager]
+
+
+# ─────────────────────────────────────────────
+# 5. Davomatlar tizimi
 # ─────────────────────────────────────────────
 @extend_schema(
     tags=["Inspection - Attendance"],
-    summary="Davomatlar ro'yxati (admin)",
+    summary="Barcha davomatlar ro'yxati (Admin/Manager)",
 )
 class AttendanceListView(generics.ListAPIView):
+    serializer_class = AttendanceSerializer
+    permission_classes = [IsAdminOrManager]
+
+    def get_queryset(self):
+        queryset = Attendance.objects.select_related("user").all().order_by("-created_at")
+        
+        user_id = self.request.query_params.get("user_id")
+        phone = self.request.query_params.get("phone")
+        is_success = self.request.query_params.get("is_success")
+        date = self.request.query_params.get("date")
+        start_date = self.request.query_params.get("start_date")
+        end_date = self.request.query_params.get("end_date")
+
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        if phone:
+            queryset = queryset.filter(user__phone__icontains=phone)
+        if is_success is not None:
+            if is_success.lower() in ["true", "1"]:
+                queryset = queryset.filter(is_success=True)
+            elif is_success.lower() in ["false", "0"]:
+                queryset = queryset.filter(is_success=False)
+        if date:
+            queryset = queryset.filter(created_at__date=date)
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
+
+        return queryset
+
+
+@extend_schema(
+    tags=["Inspection - Attendance"],
+    summary="Bitta davomat yozuvi tafsilotlari (Admin/Manager/Worker)",
+)
+class AttendanceRetrieveView(generics.RetrieveAPIView):
     queryset = Attendance.objects.select_related("user").all()
     serializer_class = AttendanceSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        obj = super().get_object()
+        if self.request.user.role == "worker" and obj.user != self.request.user:
+            raise permissions.exceptions.PermissionDenied("Sizda ushbu davomat ma'lumotlarini ko'rish huquqi yo'q.")
+        return obj
+
+
+@extend_schema(
+    tags=["Inspection - Attendance"],
+    summary="Xodimning o'z davomatlari ro'yxati (Faqat Worker)",
+)
+class MyAttendanceListView(generics.ListAPIView):
+    serializer_class = AttendanceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Attendance.objects.filter(user=self.request.user).order_by("-created_at")
+
+
+@extend_schema(
+    tags=["Inspection - Attendance"],
+    summary="Davomat statistikasi (Admin/Manager)",
+)
+class AttendanceStatsView(APIView):
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request, *args, **kwargs):
+        from django.utils import timezone
+        
+        today = timezone.localtime().date()
+        today_attendances = Attendance.objects.filter(created_at__date=today)
+        today_total = today_attendances.count()
+        today_success = today_attendances.filter(is_success=True).count()
+        today_failed = today_attendances.filter(is_success=False).count()
+        
+        today_unique_users = today_attendances.values("user").distinct().count()
+        total_workers = User.objects.filter(role="worker").count()
+        active_zones_count = WorkZone.objects.filter(is_active=True).count()
+
+        data = {
+            "date": today,
+            "total_workers": total_workers,
+            "active_zones_count": active_zones_count,
+            "today_stats": {
+                "total_checkins": today_total,
+                "successful_checkins": today_success,
+                "failed_checkins": today_failed,
+                "unique_workers_checked_in": today_unique_users,
+                "absent_workers": max(0, total_workers - today_unique_users)
+            },
+            "overall_stats": {
+                "total_checkins_all_time": Attendance.objects.count(),
+                "successful_checkins_all_time": Attendance.objects.filter(is_success=True).count()
+            }
+        }
+        return Response(data, status=status.HTTP_200_OK)

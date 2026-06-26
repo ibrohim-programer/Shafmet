@@ -86,5 +86,21 @@ class ProfileSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "phone", "role", "is_active", "is_staff", "created_at"]
+
+
+class UserAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "phone",
+            "full_name",
+            "role",
+            "avatar",
+            "is_active",
+            "is_staff",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
         
         

@@ -126,3 +126,64 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class WorkerDetailSerializer(serializers.ModelSerializer):
+    photo = serializers.ImageField(source='face_profile.photo', read_only=True)
+    new_photo = serializers.ImageField(write_only=True, required=False, help_text="Yangi yuz rasmi yuklash (ixtiyoriy)")
+    password = serializers.CharField(write_only=True, required=False)
+    has_face_profile = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "phone",
+            "full_name",
+            "avatar",
+            "role",
+            "is_active",
+            "photo",
+            "new_photo",
+            "password",
+            "has_face_profile",
+            "created_at",
+        ]
+        read_only_fields = ["id", "role", "photo", "created_at"]
+
+    def get_has_face_profile(self, obj):
+        return hasattr(obj, 'face_profile')
+
+    def validate_phone(self, value):
+        phone = str(value).strip()
+        if not phone.startswith("+998"):
+            raise serializers.ValidationError("Telefon raqam +998 bilan boshlanishi shart.")
+        user_id = self.instance.id if self.instance else None
+        if User.objects.exclude(pk=user_id).filter(phone=phone).exists():
+            raise serializers.ValidationError("Bu telefon raqam allaqachon ro'yxatdan o'tgan.")
+        return phone
+
+    def update(self, instance, validated_data):
+        new_photo = validated_data.pop("new_photo", None)
+        password = validated_data.pop("password", None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
+        instance.save()
+
+        if new_photo:
+            encoding = get_face_encoding(new_photo)
+            if encoding is None:
+                raise serializers.ValidationError(
+                    {"new_photo": "Rasmda yuz topilmadi. Iltimos, aniq yuz rasmi yuklang."}
+                )
+            
+            face_profile, created = FaceProfile.objects.get_or_create(user=instance)
+            face_profile.encoding = encoding
+            face_profile.photo = new_photo
+            face_profile.save()
+
+        return instance

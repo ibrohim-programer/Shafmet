@@ -6,9 +6,9 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from core.permissions import IsAdmin                                                                                                            
+from core.permissions import IsAdmin, IsAdminOrManager, IsBoss
 
-from .serializers import LoginSerializers, ProfileSerializer, RegisterSerializers
+from .serializers import LoginSerializers, ProfileSerializer, RegisterSerializers, UserAdminSerializer
 
 
 class RegisterView(APIView):
@@ -141,3 +141,37 @@ class LogoutView(APIView):
             )
 
         return Response(status=status.HTTP_205_RESET_CONTENT)
+
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Barcha foydalanuvchilar ro'yxati (Admin/Manager/Boss)",
+)
+class UserListView(generics.ListAPIView):
+    queryset = get_user_model().objects.all().order_by("-created_at")
+    serializer_class = UserAdminSerializer
+    permission_classes = [IsAdminOrManager | IsBoss]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        role = self.request.query_params.get("role")
+        search = self.request.query_params.get("search")
+        
+        if role:
+            queryset = queryset.filter(role=role)
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(full_name__icontains=search) | Q(phone__icontains=search)
+            )
+        return queryset
+
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Foydalanuvchini ko'rish, tahrirlash va o'chirish (Admin/Boss)",
+)
+class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = get_user_model().objects.all()
+    serializer_class = UserAdminSerializer
+    permission_classes = [IsAdmin | IsBoss]
