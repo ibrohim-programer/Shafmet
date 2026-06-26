@@ -17,6 +17,8 @@ from .serializers import (
     WorkerDetailSerializer,
 )
 from .services import calculate_cosine_similarity, compare_faces, compare_faces_direct, is_inside_zone
+from .throttling import CheckInRateThrottle
+from notifications.services import send_push_notification
 
 User = get_user_model()
 
@@ -66,14 +68,15 @@ class CreateWorkerView(APIView):
 # ─────────────────────────────────────────────
 class CheckInView(APIView):
     """
-    Ishchi check-in qiladi (rasm fayli yuborish orqali).
+    Ishchi check-in/out qiladi (rasm fayli yuborish orqali).
     """
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [CheckInRateThrottle]
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
     @extend_schema(
         tags=["Inspection - Attendance"],
-        summary="Ishchi check-in (rasm yuklash orqali)",
+        summary="Ishchi check-in/out (rasm yuklash orqali)",
         description=(
             "Ishchi yuz rasmini yuboradi. Server tomonida face_recognition kutubxonasi "
             "yordamida bazadagi rasm bilan solishtiriladi va GPS joylashuvi tekshiriladi."
@@ -86,6 +89,7 @@ class CheckInView(APIView):
                     "photo":     {"type": "string", "format": "binary", "description": "Xodimning yuz rasmi"},
                     "latitude":  {"type": "number", "example": 41.311081, "description": "Kenglik koordinatasi"},
                     "longitude": {"type": "number", "example": 69.240562, "description": "Uzunlik koordinatasi"},
+                    "attendance_type": {"type": "string", "enum": ["in", "out"], "default": "in", "description": "Davomat turi (kirish/chiqish)"},
                 },
                 "required": ["photo", "latitude", "longitude"],
             },
@@ -98,6 +102,7 @@ class CheckInView(APIView):
                     "face_verified":     {"type": "boolean"},
                     "location_verified": {"type": "boolean"},
                     "distance_meters":   {"type": "number"},
+                    "attendance_type":   {"type": "string"},
                     "message":           {"type": "string"},
                 },
             },
@@ -127,6 +132,7 @@ class CheckInView(APIView):
         photo     = data["photo"]
         latitude  = data["latitude"]
         longitude = data["longitude"]
+        attendance_type = data.get("attendance_type", "in")
 
         # ── Yuz solishtirish (Birinchi navbatda bazadagi real rasm bilan, xatolik bo'lsa encoding bilan) ──
         face_matched = False
@@ -166,6 +172,7 @@ class CheckInView(APIView):
         # ── Davomat yozuvi ──
         Attendance.objects.create(
             user=user,
+            attendance_type=attendance_type,
             latitude=latitude,
             longitude=longitude,
             distance_meters=round(distance_meters, 2),
@@ -175,14 +182,30 @@ class CheckInView(APIView):
         )
 
         # ── Javob xabari ──
+        type_str = "Kirish" if attendance_type == "in" else "Chiqish"
         if is_success:
-            message = "Davomat muvaffaqiyatli qayd etildi."
+            message = f"{type_str} davomati muvaffaqiyatli qayd etildi."
         elif not face_matched and not in_zone:
-            message = "Yuz tasdiqlanmadi va siz ish hududidan tashqaridasiz."
+            message = f"Yuz tasdiqlanmadi va siz ish hududidan tashqaridasiz ({type_str} rad etildi)."
         elif not face_matched:
-            message = "Yuz tasdiqlanmadi. Iltimos, qaytadan urinib ko'ring."
+            message = f"Yuz tasdiqlanmadi. Iltimos, qaytadan urinib ko'ring ({type_str} rad etildi)."
         else:
-            message = "Siz ish hududidan tashqaridasiz."
+            message = f"Siz ish hududidan tashqaridasiz ({type_str} rad etildi)."
+
+        # ── Push bildirishnoma yuborish ──
+        try:
+            send_push_notification(
+                user=user,
+                title="Davomat Tizimi",
+                body=message,
+                data={
+                    "success": str(is_success),
+                    "attendance_type": attendance_type,
+                    "distance_meters": str(round(distance_meters, 2))
+                }
+            )
+        except Exception:
+            pass
 
         return Response(
             {
@@ -190,6 +213,7 @@ class CheckInView(APIView):
                 "face_verified":     face_matched,
                 "location_verified": in_zone,
                 "distance_meters":   round(distance_meters, 2),
+                "attendance_type":   attendance_type,
                 "message":           message,
             },
             status=status.HTTP_200_OK if is_success else status.HTTP_401_UNAUTHORIZED,
@@ -268,6 +292,7 @@ class AttendanceListView(generics.ListAPIView):
         user_id = self.request.query_params.get("user_id")
         phone = self.request.query_params.get("phone")
         is_success = self.request.query_params.get("is_success")
+        attendance_type = self.request.query_params.get("attendance_type")
         date = self.request.query_params.get("date")
         start_date = self.request.query_params.get("start_date")
         end_date = self.request.query_params.get("end_date")
@@ -281,6 +306,8 @@ class AttendanceListView(generics.ListAPIView):
                 queryset = queryset.filter(is_success=True)
             elif is_success.lower() in ["false", "0"]:
                 queryset = queryset.filter(is_success=False)
+        if attendance_type:
+            queryset = queryset.filter(attendance_type=attendance_type)
         if date:
             queryset = queryset.filter(created_at__date=date)
         if start_date:

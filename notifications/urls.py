@@ -1,5 +1,7 @@
 from django.urls import path
-from account.views import *
+from .views import FCMDeviceRegisterView, FCMDeviceUnregisterView
 
-
-urlpatterns = []
+urlpatterns = [
+    path("devices/register/", FCMDeviceRegisterView.as_view(), name="fcm-device-register"),
+    path("devices/unregister/", FCMDeviceUnregisterView.as_view(), name="fcm-device-unregister"),
+]

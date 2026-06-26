@@ -83,6 +83,12 @@ class CheckInSerializer(serializers.Serializer):
         required=True,
         help_text="GPS uzunlik.",
     )
+    attendance_type = serializers.ChoiceField(
+        choices=[("in", "In"), ("out", "Out")],
+        default="in",
+        required=False,
+        help_text="Davomat turi (in/out)",
+    )
 
     def validate(self, attrs):
         # ── Foydalanuvchini aniqlash tekshiruvi ──
@@ -117,6 +123,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "user",
             "user_phone",
             "user_full_name",
+            "attendance_type",
             "latitude",
             "longitude",
             "distance_meters",

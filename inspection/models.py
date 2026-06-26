@@ -38,13 +38,24 @@ class WorkZone(models.Model):
         return self.name
 
 
+class AttendanceType(models.TextChoices):
+    IN = "in", "Kirish (In)"
+    OUT = "out", "Chiqish (Out)"
+
+
 class Attendance(models.Model):
-    """Davomat yozuvi — har bir check-in urinishi (muvaffaqiyatli yoki yo'q)."""
+    """Davomat yozuvi — har bir check-in/out urinishi (muvaffaqiyatli yoki yo'q)."""
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="attendances",
         verbose_name="Foydalanuvchi",
+    )
+    attendance_type = models.CharField(
+        "Davomat turi",
+        max_length=10,
+        choices=AttendanceType.choices,
+        default=AttendanceType.IN,
     )
     latitude = models.FloatField("Kenglik")
     longitude = models.FloatField("Uzunlik")
@@ -61,4 +72,4 @@ class Attendance(models.Model):
 
     def __str__(self):
         status = "✓" if self.is_success else "✗"
-        return f"{status} {self.user.full_name} — {self.created_at:%Y-%m-%d %H:%M}"
+        return f"{status} {self.user.full_name} ({self.get_attendance_type_display()}) — {self.created_at:%Y-%m-%d %H:%M}"

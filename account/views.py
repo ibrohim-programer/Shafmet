@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenRefreshView
-
+from django.contrib.auth import get_user_model
 from core.permissions import IsAdmin, IsAdminOrManager, IsBoss
 
 from .serializers import LoginSerializers, ProfileSerializer, RegisterSerializers, UserAdminSerializer
