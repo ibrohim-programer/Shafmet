@@ -64,6 +64,8 @@ class UserModel(AbstractBaseUser , PermissionsMixin):
     )
     salary = models.DecimalField("Oylik ish haqi", max_digits=12, decimal_places=2, default=0.00)
     balance = models.DecimalField("Balans", max_digits=12, decimal_places=2, default=0.00)
+    work_start_time = models.TimeField("Ish boshlash vaqti (Shaxsiy)", null=True, blank=True)
+    work_end_time = models.TimeField("Ish tugash vaqti (Shaxsiy)", null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)   
     created_at = models.DateTimeField(auto_now_add=True)

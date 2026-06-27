@@ -177,12 +177,19 @@ class CheckInView(APIView):
         is_late = False
         from django.utils import timezone
         if is_success and attendance_type == "in":
-            schedule = None
-            if user.department:
-                schedule = WorkSchedule.objects.filter(departments=user.department).first()
-            if schedule:
+            start_time = None
+            if user.work_start_time:
+                start_time = user.work_start_time
+            else:
+                schedule = None
+                if user.department:
+                    schedule = WorkSchedule.objects.filter(departments=user.department).first()
+                if schedule:
+                    start_time = schedule.start_time
+
+            if start_time:
                 now_time = timezone.localtime(timezone.now()).time()
-                if now_time > schedule.start_time:
+                if now_time > start_time:
                     is_late = True
 
         # ── Davomat yozuvi ──
@@ -537,10 +544,16 @@ class FaceCheckInOutView(APIView):
         today = timezone.localtime().date()
         daily_att, created = DailyAttendance.objects.get_or_create(user=user, date=today)
 
-        # Get work schedule
-        schedule = None
-        if user.department:
-            schedule = WorkSchedule.objects.filter(departments=user.department).first()
+        # Get work schedule or individual schedule
+        start_time = None
+        if user.work_start_time:
+            start_time = user.work_start_time
+        else:
+            schedule = None
+            if user.department:
+                schedule = WorkSchedule.objects.filter(departments=user.department).first()
+            if schedule:
+                start_time = schedule.start_time
 
         now_dt = timezone.now()
         now_time = timezone.localtime(now_dt).time()
@@ -548,7 +561,7 @@ class FaceCheckInOutView(APIView):
         if not daily_att.check_in_time:
             # Check-in
             is_late = False
-            if schedule and now_time > schedule.start_time:
+            if start_time and now_time > start_time:
                 is_late = True
             
             daily_att.check_in_time = now_dt
@@ -616,11 +629,15 @@ class MyAttendanceTodayView(APIView):
         daily_att = DailyAttendance.objects.filter(user=user, date=today).first()
         
         # Get schedule
-        schedule = None
-        if user.department:
-            schedule = WorkSchedule.objects.filter(departments=user.department).first()
-
-        schedule_str = f"{schedule.start_time.strftime('%H:%M')} — {schedule.end_time.strftime('%H:%M')}" if schedule else "Ish vaqti belgilanmagan"
+        schedule_str = "Ish vaqti belgilanmagan"
+        if user.work_start_time and user.work_end_time:
+            schedule_str = f"{user.work_start_time.strftime('%H:%M')} — {user.work_end_time.strftime('%H:%M')} (Shaxsiy)"
+        else:
+            schedule = None
+            if user.department:
+                schedule = WorkSchedule.objects.filter(departments=user.department).first()
+            if schedule:
+                schedule_str = f"{schedule.start_time.strftime('%H:%M')} — {schedule.end_time.strftime('%H:%M')}"
 
         return Response({
             "department": user.department.name if user.department else None,

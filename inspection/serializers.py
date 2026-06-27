@@ -22,6 +22,8 @@ class CreateWorkerSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
     photo = serializers.ImageField(write_only=True)
     department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all(), required=True)
+    work_start_time = serializers.TimeField(required=False, allow_null=True)
+    work_end_time = serializers.TimeField(required=False, allow_null=True)
 
     def validate_phone(self, value):
         phone = str(value).strip()
@@ -50,6 +52,8 @@ class CreateWorkerSerializer(serializers.Serializer):
                 full_name=validated_data["full_name"],
                 role="worker",
                 department=department,
+                work_start_time=validated_data.get("work_start_time"),
+                work_end_time=validated_data.get("work_end_time"),
             )
             FaceProfile.objects.create(
                 user=user,
@@ -75,6 +79,8 @@ class CreateWorkerSerializer(serializers.Serializer):
             "photo": photo_url,
             "photo_url": photo_url,
             "department": DepartmentSerializer(instance.department).data if instance.department else None,
+            "work_start_time": instance.work_start_time.strftime("%H:%M:%S") if instance.work_start_time else None,
+            "work_end_time": instance.work_end_time.strftime("%H:%M:%S") if instance.work_end_time else None,
         }
 
 
@@ -182,6 +188,8 @@ class WorkerDetailSerializer(serializers.ModelSerializer):
             "password",
             "has_face_profile",
             "department",
+            "work_start_time",
+            "work_end_time",
             "created_at",
         ]
         read_only_fields = ["id", "role", "photo", "photo_url", "created_at"]
