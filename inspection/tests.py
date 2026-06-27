@@ -98,3 +98,40 @@ class CheckInTests(APITestCase):
         if isinstance(error_msg, list):
             error_msg = error_msg[0]
         self.assertIn("Foydalanuvchini aniqlash", error_msg)
+
+
+class FaceProfileTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            phone="+998900000003",
+            password="testpass123",
+            full_name="Face Profile User",
+            role="worker",
+        )
+
+    @patch('inspection.services.get_face_encoding')
+    def test_face_profile_auto_encoding_on_clean(self, mock_get_encoding):
+        mock_get_encoding.return_value = [0.5] * 128
+        
+        # Create FaceProfile without encoding, should automatically populate
+        profile = FaceProfile(
+            user=self.user,
+            photo=SimpleUploadedFile("face.png", SMALL_GIF, content_type="image/gif")
+        )
+        profile.clean()
+        profile.save()
+        
+        self.assertEqual(profile.encoding, [0.5] * 128)
+        mock_get_encoding.assert_called_once()
+
+    @patch('inspection.services.get_face_encoding')
+    def test_face_profile_validation_error_when_no_face_detected(self, mock_get_encoding):
+        mock_get_encoding.return_value = None
+        
+        profile = FaceProfile(
+            user=self.user,
+            photo=SimpleUploadedFile("face.png", SMALL_GIF, content_type="image/gif")
+        )
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            profile.clean()

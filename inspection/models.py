@@ -21,6 +21,38 @@ class FaceProfile(models.Model):
     def __str__(self):
         return f"FaceProfile: {self.user.full_name}"
 
+    def clean(self):
+        super().clean()
+        
+        needs_encoding = False
+        if not self.encoding:
+            needs_encoding = True
+        elif self.pk:
+            try:
+                orig = FaceProfile.objects.get(pk=self.pk)
+                if orig.photo != self.photo and orig.encoding == self.encoding:
+                    needs_encoding = True
+            except FaceProfile.DoesNotExist:
+                pass
+
+        if needs_encoding and self.photo:
+            try:
+                self.photo.seek(0)
+            except Exception:
+                pass
+            from .services import get_face_encoding
+            encoding = get_face_encoding(self.photo)
+            if not encoding:
+                from django.core.exceptions import ValidationError
+                raise ValidationError(
+                    {"photo": "Rasmda yuz topilmadi. Iltimos, aniq yuz rasmi yuklang."}
+                )
+            self.encoding = encoding
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
 
 class WorkZone(models.Model):
     """Ish hududi — geofencing uchun markaz nuqtasi va radius."""
