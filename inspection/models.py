@@ -95,6 +95,9 @@ class Attendance(models.Model):
     face_verified = models.BooleanField("Yuz tasdiqlandi", default=False)
     location_verified = models.BooleanField("Joylashuv tasdiqlandi", default=False)
     is_success = models.BooleanField("Muvaffaqiyatli", default=False)
+    ip_address = models.CharField("IP Manzil", max_length=45, blank=True, null=True)
+    attempts = models.PositiveIntegerField("Urinishlar soni", default=1)
+    is_late = models.BooleanField("Kechikdimi", default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -32,6 +32,18 @@ class UserModel(AbstractBaseUser , PermissionsMixin):
     full_name = models.CharField("To'liq ism", max_length=150)
     role = models.CharField("Rol",max_length=20,choices=RoleChoices.choices,default=RoleChoices.WORKER)
     avatar = models.ImageField("Rasm", upload_to="avatars/", blank=True, null=True)
+    branch = models.CharField(
+        "Bo'lim",
+        max_length=50,
+        choices=[
+            ("ichki_dokon", "Ichki Do'kon"),
+            ("tashqi_dokon", "Tashqi Do'kon"),
+            ("personal", "Personal"),
+        ],
+        default="ichki_dokon",
+    )
+    salary = models.DecimalField("Oylik ish haqi", max_digits=12, decimal_places=2, default=0.00)
+    balance = models.DecimalField("Balans", max_digits=12, decimal_places=2, default=0.00)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)   
     created_at = models.DateTimeField(auto_now_add=True)

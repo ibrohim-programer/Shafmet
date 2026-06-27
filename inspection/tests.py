@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 from unittest.mock import patch
 
-from .models import FaceProfile, WorkZone
+from .models import FaceProfile, WorkZone, Attendance
 
 SMALL_GIF = (
     b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x00\x00\x00\x21\xf9\x04'
@@ -135,3 +135,106 @@ class FaceProfileTests(APITestCase):
         from django.core.exceptions import ValidationError
         with self.assertRaises(ValidationError):
             profile.clean()
+
+
+class DashboardAndAttendanceAPIV1Tests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_user = get_user_model().objects.create_superuser(
+            phone="+998901234567",
+            password="adminpassword123",
+            full_name="Admin Adminov",
+        )
+        self.client.force_authenticate(user=self.admin_user)
+        
+        self.worker = get_user_model().objects.create_user(
+            phone="+998909876543",
+            password="workerpassword123",
+            full_name="Worker Ali",
+            branch="ichki_dokon",
+            salary=5000000.0,
+            balance=100000.0,
+        )
+        # Create an attendance log
+        self.attendance = Attendance.objects.create(
+            user=self.worker,
+            attendance_type="in",
+            latitude=41.311081,
+            longitude=69.240562,
+            distance_meters=10.0,
+            face_verified=True,
+            location_verified=True,
+            is_success=True,
+            is_late=False,
+            attempts=1,
+            ip_address="192.168.1.10"
+        )
+        
+    def test_dashboard_summary(self):
+        response = self.client.get(reverse("v1-dashboard-summary"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("present", response.data)
+        self.assertIn("late", response.data)
+        self.assertIn("absent", response.data)
+
+    def test_dashboard_charts(self):
+        response = self.client.get(reverse("v1-dashboard-charts"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 3) # ichki_dokon, tashqi_dokon, personal
+
+    def test_attendance_all(self):
+        response = self.client.get(reverse("v1-attendance-all"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("results", response.data) # paginated
+
+    def test_attendance_present(self):
+        response = self.client.get(reverse("v1-attendance-present"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("results", response.data)
+
+    def test_attendance_late(self):
+        response = self.client.get(reverse("v1-attendance-late"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("results", response.data)
+
+    def test_attendance_absent(self):
+        response = self.client.get(reverse("v1-attendance-absent"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("results", response.data)
+
+    def test_attendance_export(self):
+        response = self.client.get(reverse("v1-attendance-export"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    def test_employee_list_create(self):
+        # List
+        response = self.client.get(reverse("v1-employees-list-create"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("results", response.data)
+        
+        # Create
+        new_employee_data = {
+            "phone": "+998901239876",
+            "full_name": "New Employee",
+            "branch": "tashqi_dokon",
+            "salary": 6000000.0,
+            "balance": 0.0
+        }
+        response = self.client.post(reverse("v1-employees-list-create"), new_employee_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["full_name"], "New Employee")
+
+    @patch('inspection.api_views.get_face_encoding')
+    def test_employee_upload_face(self, mock_get_encoding):
+        mock_get_encoding.return_value = [0.2] * 128
+        
+        photo = SimpleUploadedFile("face.png", SMALL_GIF, content_type="image/gif")
+        response = self.client.post(
+            reverse("v1-employees-upload-face", kwargs={"id": self.worker.id}),
+            {"photo": photo},
+            format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["has_face_profile"])
+

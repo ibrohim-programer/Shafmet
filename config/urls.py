@@ -19,6 +19,7 @@ urlpatterns = [
     path('notifications/' , include('notifications.urls')),
     path('task/' , include('task_and_assessment.urls')),
     path('api/inspection/' , include('inspection.urls')),
+    path('api/v1/', include('inspection.api_urls')),
 ]
 
 if settings.DEBUG:
