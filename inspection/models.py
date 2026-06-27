@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class FaceProfile(models.Model):
@@ -108,3 +109,56 @@ class Attendance(models.Model):
     def __str__(self):
         status = "✓" if self.is_success else "✗"
         return f"{status} {self.user.full_name} ({self.get_attendance_type_display()}) — {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class WorkSchedule(models.Model):
+    """Ish vaqti jadvali — bo'limlar uchun ish boshlanish va tugash vaqti."""
+    departments = models.ManyToManyField('account.Department', related_name='work_schedules', verbose_name="Bo'limlar")
+    start_time = models.TimeField("Ish boshlanish vaqti")
+    end_time = models.TimeField("Ish tugash vaqti")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_schedules",
+        verbose_name="Yaratuvchi"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Ish vaqti jadvali"
+        verbose_name_plural = "Ish vaqti jadvallari"
+
+    def __str__(self):
+        return f"Schedule ({self.start_time:%H:%M} - {self.end_time:%H:%M})"
+
+
+class DailyAttendance(models.Model):
+    """Xodimning kunlik umumiy davomat yozuvi (kirish va chiqish vaqti)."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="daily_attendances",
+        verbose_name="Foydalanuvchi"
+    )
+    date = models.DateField("Sana", default=timezone.now)
+    check_in_time = models.DateTimeField("Kirish vaqti", null=True, blank=True)
+    check_out_time = models.DateTimeField("Chiqish vaqti", null=True, blank=True)
+    is_late = models.BooleanField("Kechikdimi", default=False)
+
+    class Meta:
+        verbose_name = "Kunlik davomat"
+        verbose_name_plural = "Kunlik davomatlar"
+        unique_together = ("user", "date")
+
+    def __str__(self):
+        return f"{self.user.full_name} - {self.date} (In: {self.check_in_time}, Out: {self.check_out_time})"
+
+    @property
+    def worked_duration(self):
+        if self.check_in_time and self.check_out_time:
+            return self.check_out_time - self.check_in_time
+        elif self.check_in_time and not self.check_out_time:
+            return timezone.now() - self.check_in_time
+        return None

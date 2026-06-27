@@ -27,6 +27,18 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(phone ,password , **extra_fields)
         
 
+class Department(models.Model):
+    name = models.CharField("Bo'lim nomi", max_length=100, unique=True)
+    code = models.CharField("Bo'lim kodi", max_length=50, unique=True, null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "Bo'lim"
+        verbose_name_plural = "Bo'limlar"
+
+
 class UserModel(AbstractBaseUser , PermissionsMixin):        
     phone = models.CharField("Telefon raqam", max_length=20, unique=True)
     full_name = models.CharField("To'liq ism", max_length=150)
@@ -41,6 +53,14 @@ class UserModel(AbstractBaseUser , PermissionsMixin):
             ("personal", "Personal"),
         ],
         default="ichki_dokon",
+    )
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="workers",
+        verbose_name="Bo'lim (ForeignKey)"
     )
     salary = models.DecimalField("Oylik ish haqi", max_digits=12, decimal_places=2, default=0.00)
     balance = models.DecimalField("Balans", max_digits=12, decimal_places=2, default=0.00)

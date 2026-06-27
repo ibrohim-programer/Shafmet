@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.urls import path , include
 from django.conf import settings
 from django.conf.urls.static import static
+from inspection.views import AttendanceByDateView, WorkerAttendanceDetailView
 
 urlpatterns = [
     # Amdin
@@ -19,6 +20,8 @@ urlpatterns = [
     path('notifications/' , include('notifications.urls')),
     path('task/' , include('task_and_assessment.urls')),
     path('api/inspection/' , include('inspection.urls')),
+    path('api/attendance/', AttendanceByDateView.as_view(), name='attendance-by-date'),
+    path('api/attendance/worker/<int:worker_id>/', WorkerAttendanceDetailView.as_view(), name='worker-attendance-detail'),
     path('api/v1/', include('inspection.api_urls')),
 ]
 

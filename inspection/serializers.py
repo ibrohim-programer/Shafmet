@@ -2,10 +2,17 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
-from .models import Attendance, FaceProfile, WorkZone
+from .models import Attendance, FaceProfile, WorkZone, WorkSchedule, DailyAttendance
 from .services import get_face_encoding
+from account.models import Department
 
 User = get_user_model()
+
+
+class DepartmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Department
+        fields = ["id", "name", "code"]
 
 
 class CreateWorkerSerializer(serializers.Serializer):
@@ -14,6 +21,7 @@ class CreateWorkerSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=150)
     password = serializers.CharField(write_only=True)
     photo = serializers.ImageField(write_only=True)
+    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all(), required=True)
 
     def validate_phone(self, value):
         phone = str(value).strip()
@@ -27,6 +35,7 @@ class CreateWorkerSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         photo = validated_data["photo"]
+        department = validated_data["department"]
 
         encoding = get_face_encoding(photo)
         if encoding is None:
@@ -40,6 +49,7 @@ class CreateWorkerSerializer(serializers.Serializer):
                 password=validated_data["password"],
                 full_name=validated_data["full_name"],
                 role="worker",
+                department=department,
             )
             FaceProfile.objects.create(
                 user=user,
@@ -50,11 +60,21 @@ class CreateWorkerSerializer(serializers.Serializer):
         return user
 
     def to_representation(self, instance):
+        request = self.context.get('request')
+        photo_url = None
+        if hasattr(instance, 'face_profile') and instance.face_profile.photo:
+            if request:
+                photo_url = request.build_absolute_uri(instance.face_profile.photo.url)
+            else:
+                photo_url = instance.face_profile.photo.url
         return {
             "id": instance.id,
             "phone": instance.phone,
             "full_name": instance.full_name,
             "role": instance.role,
+            "photo": photo_url,
+            "photo_url": photo_url,
+            "department": DepartmentSerializer(instance.department).data if instance.department else None,
         }
 
 
@@ -137,9 +157,15 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
 class WorkerDetailSerializer(serializers.ModelSerializer):
     photo = serializers.ImageField(source='face_profile.photo', read_only=True)
+    photo_url = serializers.SerializerMethodField()
     new_photo = serializers.ImageField(write_only=True, required=False, help_text="Yangi yuz rasmi yuklash (ixtiyoriy)")
     password = serializers.CharField(write_only=True, required=False)
     has_face_profile = serializers.SerializerMethodField()
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(),
+        required=True,
+        help_text="Bo'lim ID si"
+    )
 
     class Meta:
         model = User
@@ -151,12 +177,30 @@ class WorkerDetailSerializer(serializers.ModelSerializer):
             "role",
             "is_active",
             "photo",
+            "photo_url",
             "new_photo",
             "password",
             "has_face_profile",
+            "department",
             "created_at",
         ]
-        read_only_fields = ["id", "role", "photo", "created_at"]
+        read_only_fields = ["id", "role", "photo", "photo_url", "created_at"]
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance.department:
+            representation["department"] = DepartmentSerializer(instance.department).data
+        else:
+            representation["department"] = None
+        return representation
+
+    def get_photo_url(self, obj):
+        request = self.context.get('request')
+        if hasattr(obj, 'face_profile') and obj.face_profile.photo:
+            if request:
+                return request.build_absolute_uri(obj.face_profile.photo.url)
+            return obj.face_profile.photo.url
+        return None
 
     def get_has_face_profile(self, obj):
         return hasattr(obj, 'face_profile')
@@ -194,3 +238,110 @@ class WorkerDetailSerializer(serializers.ModelSerializer):
             face_profile.save()
 
         return instance
+
+
+class AttendanceByDateSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    full_name = serializers.CharField()
+    phone = serializers.CharField()
+    branch = serializers.CharField()
+    branch_display = serializers.CharField(source='get_branch_display')
+    department = DepartmentSerializer()
+    check_in_time = serializers.SerializerMethodField()
+    balance = serializers.DecimalField(max_digits=12, decimal_places=2)
+    activity_percent = serializers.SerializerMethodField()
+
+    def get_check_in_time(self, obj):
+        date = self.context.get('date')
+        if not date:
+            return None
+        att = Attendance.objects.filter(
+            user=obj,
+            created_at__date=date,
+            is_success=True,
+            attendance_type='in'
+        ).order_by('created_at').first()
+        
+        if att:
+            from django.utils import timezone
+            local_time = timezone.localtime(att.created_at)
+            return local_time.strftime("%H:%M:%S")
+        return None
+
+    def get_activity_percent(self, obj):
+        date = self.context.get('date')
+        if not date:
+            return 0
+            
+        attendances = Attendance.objects.filter(
+            user=obj,
+            created_at__date=date,
+            is_success=True
+        )
+        if not attendances.exists():
+            return 0
+            
+        from task_and_assessment.models import Task
+        tasks = Task.objects.filter(assigned_to=obj)
+        total_tasks = tasks.count()
+        
+        if total_tasks > 0:
+            completed_tasks = tasks.filter(status="completed").count()
+            task_completion_rate = (completed_tasks / total_tasks) * 100
+            
+            has_late = attendances.filter(is_late=True).exists()
+            punctuality_score = 70 if has_late else 100
+            
+            activity = int(0.6 * task_completion_rate + 0.4 * punctuality_score)
+            return min(100, max(0, activity))
+        else:
+            has_late = attendances.filter(is_late=True).exists()
+            return 70 if has_late else 100
+
+
+class WorkScheduleSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
+    departments_details = DepartmentSerializer(source='departments', many=True, read_only=True)
+
+    class Meta:
+        model = WorkSchedule
+        fields = [
+            'id',
+            'departments',
+            'departments_details',
+            'start_time',
+            'end_time',
+            'created_by',
+            'created_by_name',
+            'created_at'
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at']
+
+
+class DailyAttendanceSerializer(serializers.ModelSerializer):
+    user_full_name = serializers.CharField(source='user.full_name', read_only=True)
+    user_phone = serializers.CharField(source='user.phone', read_only=True)
+    department_name = serializers.CharField(source='user.department.name', read_only=True)
+    worked_duration_seconds = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DailyAttendance
+        fields = [
+            'id',
+            'user',
+            'user_full_name',
+            'user_phone',
+            'department_name',
+            'date',
+            'check_in_time',
+            'check_out_time',
+            'is_late',
+            'worked_duration_seconds'
+        ]
+        read_only_fields = fields
+
+    def get_worked_duration_seconds(self, obj):
+        duration = obj.worked_duration
+        if duration:
+            return int(duration.total_seconds())
+        return 0
