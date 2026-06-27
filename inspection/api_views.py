@@ -482,6 +482,7 @@ class EmployeeListCreateAPIView(generics.ListCreateAPIView):
     permission_classes = [IsBossOrAdminOrManager]
     serializer_class = EmployeeSerializer
     pagination_class = StandardResultsSetPagination
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
     
     @extend_schema(
         tags=["Employees V1"],

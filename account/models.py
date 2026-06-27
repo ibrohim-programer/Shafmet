@@ -50,6 +50,7 @@ class UserModel(AbstractBaseUser , PermissionsMixin):
         choices=[
             ("ichki_dokon", "Ichki Do'kon"),
             ("tashqi_dokon", "Tashqi Do'kon"),
+            ("buxgalter", "Buxgalter"),
             ("personal", "Personal"),
         ],
         default="ichki_dokon",

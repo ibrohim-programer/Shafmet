@@ -7,6 +7,8 @@ User = get_user_model()
 class EmployeeSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     branch_display = serializers.CharField(source='get_branch_display', read_only=True)
+    avatar = serializers.ImageField(required=False, allow_null=True)
+    avatar_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
@@ -19,11 +21,20 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'salary', 
             'balance', 
             'avatar', 
+            'avatar_url',
+            'work_start_time',
+            'work_end_time',
             'password', 
             'is_active', 
             'created_at'
         ]
         read_only_fields = ['id', 'created_at']
+
+    def get_avatar_url(self, obj):
+        request = self.context.get('request')
+        if obj.avatar and request:
+            return request.build_absolute_uri(obj.avatar.url)
+        return None
 
     def validate_phone(self, value):
         phone = str(value).strip()
@@ -51,6 +62,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
             salary=validated_data.get('salary', 0.0),
             balance=validated_data.get('balance', 0.0),
             avatar=validated_data.get('avatar', None),
+            work_start_time=validated_data.get('work_start_time', None),
+            work_end_time=validated_data.get('work_end_time', None),
             role="worker"
         )
         return user
