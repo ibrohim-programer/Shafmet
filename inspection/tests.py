@@ -6,7 +6,7 @@ from rest_framework.test import APIClient, APITestCase
 from unittest.mock import patch
 
 from .models import FaceProfile, WorkZone, Attendance, WorkSchedule, DailyAttendance
-from account.models import Department
+from account.models import Lavozim
 
 SMALL_GIF = (
     b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x00\x00\x00\x21\xf9\x04'
@@ -157,18 +157,12 @@ class DashboardAndAttendanceAPIV1Tests(APITestCase):
             balance=100000.0,
         )
         # Create an attendance log
+        from django.utils import timezone
         self.attendance = Attendance.objects.create(
-            user=self.worker,
-            attendance_type="in",
-            latitude=41.311081,
-            longitude=69.240562,
-            distance_meters=10.0,
-            face_verified=True,
-            location_verified=True,
-            is_success=True,
+            worker=self.worker,
+            check_in_time=timezone.now(),
+            check_in_success=True,
             is_late=False,
-            attempts=1,
-            ip_address="192.168.1.10"
         )
         
     def test_dashboard_summary(self):
@@ -243,8 +237,8 @@ class DashboardAndAttendanceAPIV1Tests(APITestCase):
 class WorkerDepartmentTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.dept_ichki, _ = Department.objects.get_or_create(code="ichki_dokon", defaults={"name": "Ichki do'kon ishchisi"})
-        self.dept_tashqi, _ = Department.objects.get_or_create(code="tashqi_dokon", defaults={"name": "Tashqi do'kon ishchisi"})
+        self.dept_ichki, _ = Lavozim.objects.get_or_create(slug="ichki_dokon", defaults={"name": "Ichki do'kon ishchisi"})
+        self.dept_tashqi, _ = Lavozim.objects.get_or_create(slug="tashqi_dokon", defaults={"name": "Tashqi do'kon ishchisi"})
         
         self.admin_user = get_user_model().objects.create_user(
             phone="+998901234568",
@@ -270,7 +264,9 @@ class WorkerDepartmentTests(APITestCase):
             "full_name": "Asror Aliyev",
             "password": "workerpass123",
             "photo": photo,
-            "department": self.dept_ichki.id
+            "department": self.dept_ichki.id,
+            "work_start_time": "09:00:00",
+            "work_end_time": "18:00:00",
         }
         
         response = self.client.post(reverse("inspection-create-worker"), data, format="multipart")
@@ -328,12 +324,34 @@ class WorkerDepartmentTests(APITestCase):
         self.assertNotIn("+998992223344", phones)
         self.assertIn("+998992223355", phones)
 
+    def test_search_workers(self):
+        w1 = get_user_model().objects.create_user(
+            phone="+998992223344",
+            password="workerpass123",
+            full_name="Worker One",
+            role="worker",
+            department=self.dept_ichki
+        )
+        w2 = get_user_model().objects.create_user(
+            phone="+998992223355",
+            password="workerpass123",
+            full_name="Worker Two",
+            role="worker",
+            department=self.dept_tashqi
+        )
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(reverse("inspection-workers-search"), {"q": "One"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        phones = [worker["phone"] for worker in response.data]
+        self.assertIn("+998992223344", phones)
+        self.assertNotIn("+998992223355", phones)
+
 
 class AttendanceByDateTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.dept_ichki, _ = Department.objects.get_or_create(code="ichki_dokon", defaults={"name": "Ichki do'kon ishchisi"})
-        self.dept_tashqi, _ = Department.objects.get_or_create(code="tashqi_dokon", defaults={"name": "Tashqi do'kon ishchisi"})
+        self.dept_ichki, _ = Lavozim.objects.get_or_create(slug="ichki_dokon", defaults={"name": "Ichki do'kon ishchisi"})
+        self.dept_tashqi, _ = Lavozim.objects.get_or_create(slug="tashqi_dokon", defaults={"name": "Tashqi do'kon ishchisi"})
         
         self.admin_user = get_user_model().objects.create_user(
             phone="+998901234568",
@@ -370,19 +388,13 @@ class AttendanceByDateTests(APITestCase):
         
         target_date = datetime.date(2025, 4, 22)
         att = Attendance.objects.create(
-            user=self.worker1,
-            attendance_type="in",
-            latitude=41.311081,
-            longitude=69.240562,
-            distance_meters=10.0,
-            face_verified=True,
-            location_verified=True,
-            is_success=True,
+            worker=self.worker1,
+            check_in_success=True,
             is_late=False,
         )
         naive_dt = datetime.datetime.combine(target_date, datetime.time(9, 30, 0))
         target_dt = timezone.make_aware(naive_dt)
-        Attendance.objects.filter(id=att.id).update(created_at=target_dt)
+        Attendance.objects.filter(id=att.id).update(date=target_date, check_in_time=target_dt)
 
         response = self.client.get(reverse("attendance-by-date"), {"date": "2025-04-22"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -398,7 +410,7 @@ class AttendanceByDateTests(APITestCase):
 class WorkScheduleAndDailyAttendanceTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.dept_ichki, _ = Department.objects.get_or_create(code="ichki_dokon", defaults={"name": "Ichki do'kon ishchisi"})
+        self.dept_ichki, _ = Lavozim.objects.get_or_create(slug="ichki_dokon", defaults={"name": "Ichki do'kon ishchisi"})
         
         self.admin_user = get_user_model().objects.create_user(
             phone="+998901234568",

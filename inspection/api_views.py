@@ -105,16 +105,16 @@ class DashboardSummaryAPIView(APIView):
         total_workers_count = workers_qs.count()
         
         successful_att = Attendance.objects.filter(
-            is_success=True,
-            created_at__date__range=[start_date, end_date]
+            check_in_success=True,
+            date__range=[start_date, end_date]
         )
         if branch:
-            successful_att = successful_att.filter(user__branch=branch)
+            successful_att = successful_att.filter(worker__branch=branch)
             
         # Har bir xodim uchun uning statusini aniqlash
         user_status = {}
         for att in successful_att:
-            uid = att.user_id
+            uid = att.worker_id
             if uid not in user_status:
                 user_status[uid] = "late" if att.is_late else "present"
             elif not att.is_late:
@@ -157,10 +157,10 @@ class DashboardChartsAPIView(APIView):
             total_workers = User.objects.filter(role="worker", is_active=True, branch=branch_code).count()
             
             present_workers = Attendance.objects.filter(
-                is_success=True,
-                user__branch=branch_code,
-                created_at__date__range=[start_date, end_date]
-            ).values('user').distinct().count()
+                check_in_success=True,
+                worker__branch=branch_code,
+                date__range=[start_date, end_date]
+            ).values('worker').distinct().count()
             
             percentage = 0.0
             if total_workers > 0:
@@ -204,13 +204,13 @@ class AttendanceAllAPIView(generics.ListAPIView):
         search = self.request.query_params.get('search')
         
         latest_checkin = Attendance.objects.filter(
-            user=OuterRef('pk'),
-            is_success=True,
-            created_at__date__range=[start_date, end_date]
-        ).order_by('-created_at')
+            worker=OuterRef('pk'),
+            check_in_success=True,
+            date__range=[start_date, end_date]
+        ).order_by('-date', '-check_in_time')
         
         queryset = User.objects.filter(role="worker").annotate(
-            latest_check_in=Subquery(latest_checkin.values('created_at')[:1])
+            latest_check_in=Subquery(latest_checkin.values('check_in_time')[:1])
         ).order_by('-created_at')
         
         if branch:
@@ -272,16 +272,16 @@ class AttendancePresentAPIView(generics.ListAPIView):
         search = self.request.query_params.get('search')
         
         queryset = Attendance.objects.filter(
-            is_success=True,
+            check_in_success=True,
             is_late=False,
-            created_at__date__range=[start_date, end_date]
-        ).select_related('user').order_by('-created_at')
+            date__range=[start_date, end_date]
+        ).select_related('worker').order_by('-date', '-check_in_time')
         
         if branch:
-            queryset = queryset.filter(user__branch=branch)
+            queryset = queryset.filter(worker__branch=branch)
         if search:
             queryset = queryset.filter(
-                Q(user__full_name__icontains=search) | Q(user__phone__icontains=search)
+                Q(worker__full_name__icontains=search) | Q(worker__phone__icontains=search)
             )
             
         return queryset
@@ -311,16 +311,16 @@ class AttendanceLateAPIView(generics.ListAPIView):
         search = self.request.query_params.get('search')
         
         queryset = Attendance.objects.filter(
-            is_success=True,
+            check_in_success=True,
             is_late=True,
-            created_at__date__range=[start_date, end_date]
-        ).select_related('user').order_by('-created_at')
+            date__range=[start_date, end_date]
+        ).select_related('worker').order_by('-date', '-check_in_time')
         
         if branch:
-            queryset = queryset.filter(user__branch=branch)
+            queryset = queryset.filter(worker__branch=branch)
         if search:
             queryset = queryset.filter(
-                Q(user__full_name__icontains=search) | Q(user__phone__icontains=search)
+                Q(worker__full_name__icontains=search) | Q(worker__phone__icontains=search)
             )
             
         return queryset
@@ -349,9 +349,9 @@ class AttendanceAbsentAPIView(generics.ListAPIView):
         search = self.request.query_params.get('search')
         
         present_user_ids = Attendance.objects.filter(
-            is_success=True,
-            created_at__date__range=[start_date, end_date]
-        ).values_list('user_id', flat=True).distinct()
+            check_in_success=True,
+            date__range=[start_date, end_date]
+        ).values_list('worker_id', flat=True).distinct()
         
         queryset = User.objects.filter(role="worker", is_active=True).exclude(
             id__in=present_user_ids
@@ -423,21 +423,21 @@ class AttendanceExportAPIView(APIView):
         ws.append(headers)
         
         if status_param == 'present':
-            queryset = Attendance.objects.filter(is_success=True, is_late=False, created_at__date__range=[start_date, end_date])
-            if branch: queryset = queryset.filter(user__branch=branch)
-            if search: queryset = queryset.filter(Q(user__full_name__icontains=search) | Q(user__phone__icontains=search))
-            for att in queryset.select_related('user'):
-                ws.append([att.user.full_name, att.user.phone, att.user.get_branch_display(), att.created_at.strftime('%Y-%m-%d %H:%M'), att.ip_address or "-", att.attempts, "Yo'q", "Vaqtida kelgan"])
+            queryset = Attendance.objects.filter(check_in_success=True, is_late=False, date__range=[start_date, end_date])
+            if branch: queryset = queryset.filter(worker__branch=branch)
+            if search: queryset = queryset.filter(Q(worker__full_name__icontains=search) | Q(worker__phone__icontains=search))
+            for att in queryset.select_related('worker'):
+                ws.append([att.worker.full_name, att.worker.phone, att.worker.get_branch_display(), att.created_at.strftime('%Y-%m-%d %H:%M'), att.ip_address or "-", att.attempts, "Yo'q", "Vaqtida kelgan"])
         
         elif status_param == 'late':
-            queryset = Attendance.objects.filter(is_success=True, is_late=True, created_at__date__range=[start_date, end_date])
-            if branch: queryset = queryset.filter(user__branch=branch)
-            if search: queryset = queryset.filter(Q(user__full_name__icontains=search) | Q(user__phone__icontains=search))
-            for att in queryset.select_related('user'):
-                ws.append([att.user.full_name, att.user.phone, att.user.get_branch_display(), att.created_at.strftime('%Y-%m-%d %H:%M'), att.ip_address or "-", att.attempts, "Ha", "Kechikkan"])
+            queryset = Attendance.objects.filter(check_in_success=True, is_late=True, date__range=[start_date, end_date])
+            if branch: queryset = queryset.filter(worker__branch=branch)
+            if search: queryset = queryset.filter(Q(worker__full_name__icontains=search) | Q(worker__phone__icontains=search))
+            for att in queryset.select_related('worker'):
+                ws.append([att.worker.full_name, att.worker.phone, att.worker.get_branch_display(), att.created_at.strftime('%Y-%m-%d %H:%M'), att.ip_address or "-", att.attempts, "Ha", "Kechikkan"])
                 
         elif status_param == 'absent':
-            present_ids = Attendance.objects.filter(is_success=True, created_at__date__range=[start_date, end_date]).values_list('user_id', flat=True).distinct()
+            present_ids = Attendance.objects.filter(check_in_success=True, date__range=[start_date, end_date]).values_list('worker_id', flat=True).distinct()
             queryset = User.objects.filter(role="worker", is_active=True).exclude(id__in=present_ids)
             if branch: queryset = queryset.filter(branch=branch)
             if search: queryset = queryset.filter(Q(full_name__icontains=search) | Q(phone__icontains=search))
@@ -445,12 +445,10 @@ class AttendanceExportAPIView(APIView):
                 ws.append([user.full_name, user.phone, user.get_branch_display(), "-", "-", "-", "-", "Kelmagan"])
                 
         else: # 'all'
-            latest_checkin = Attendance.objects.filter(user=OuterRef('pk'), is_success=True, created_at__date__range=[start_date, end_date]).order_by('-created_at')
+            latest_checkin = Attendance.objects.filter(worker=OuterRef('pk'), check_in_success=True, date__range=[start_date, end_date]).order_by('-date', '-check_in_time')
             queryset = User.objects.filter(role="worker").annotate(
-                latest_check_in=Subquery(latest_checkin.values('created_at')[:1]),
+                latest_check_in=Subquery(latest_checkin.values('check_in_time')[:1]),
                 latest_is_late=Subquery(latest_checkin.values('is_late')[:1]),
-                latest_ip=Subquery(latest_checkin.values('ip_address')[:1]),
-                latest_attempts=Subquery(latest_checkin.values('attempts')[:1]),
             )
             if branch: queryset = queryset.filter(branch=branch)
             if search: queryset = queryset.filter(Q(full_name__icontains=search) | Q(phone__icontains=search))
@@ -458,7 +456,7 @@ class AttendanceExportAPIView(APIView):
                 time_str = user.latest_check_in.strftime('%Y-%m-%d %H:%M') if user.latest_check_in else "-"
                 is_late_str = "Ha" if user.latest_is_late else ("Yo'q" if user.latest_check_in else "-")
                 status_str = "Kechikkan" if user.latest_is_late else ("Vaqtida kelgan" if user.latest_check_in else "Kelmagan")
-                ws.append([user.full_name, user.phone, user.get_branch_display(), time_str, user.latest_ip or "-", user.latest_attempts or "-", is_late_str, status_str])
+                ws.append([user.full_name, user.phone, user.get_branch_display(), time_str, "-", 1, is_late_str, status_str])
 
         # Ustunlar kengligini kontentga qarab moslash
         for col in ws.columns:

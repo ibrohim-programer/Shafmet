@@ -71,49 +71,91 @@ class WorkZone(models.Model):
         return self.name
 
 
-class AttendanceType(models.TextChoices):
-    IN = "in", "Kirish (In)"
-    OUT = "out", "Chiqish (Out)"
-
-
 class Attendance(models.Model):
-    """Davomat yozuvi — har bir check-in/out urinishi (muvaffaqiyatli yoki yo'q)."""
-    user = models.ForeignKey(
+    """Davomat yozuvi — bitta xodim uchun kunlik yagona kirish-chiqish yozuvi."""
+    worker = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="attendances",
-        verbose_name="Foydalanuvchi",
+        verbose_name="Xodim",
     )
-    attendance_type = models.CharField(
-        "Davomat turi",
-        max_length=10,
-        choices=AttendanceType.choices,
-        default=AttendanceType.IN,
-    )
-    latitude = models.FloatField("Kenglik")
-    longitude = models.FloatField("Uzunlik")
-    distance_meters = models.FloatField("Masofa (metr)")
-    face_verified = models.BooleanField("Yuz tasdiqlandi", default=False)
-    location_verified = models.BooleanField("Joylashuv tasdiqlandi", default=False)
-    is_success = models.BooleanField("Muvaffaqiyatli", default=False)
-    ip_address = models.CharField("IP Manzil", max_length=45, blank=True, null=True)
-    attempts = models.PositiveIntegerField("Urinishlar soni", default=1)
+    date = models.DateField("Sana", auto_now_add=True)
+
+    check_in_time = models.DateTimeField("Kirish vaqti", null=True, blank=True)
+    check_in_success = models.BooleanField("Kirish muvaffaqiyatli", default=True)
+
+    check_out_time = models.DateTimeField("Chiqish vaqti", null=True, blank=True)
+    check_out_success = models.BooleanField("Chiqish muvaffaqiyatli", null=True, blank=True)
+
     is_late = models.BooleanField("Kechikdimi", default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Davomat"
         verbose_name_plural = "Davomatlar"
-        ordering = ["-created_at"]
+        unique_together = ("worker", "date")
 
     def __str__(self):
-        status = "✓" if self.is_success else "✗"
-        return f"{status} {self.user.full_name} ({self.get_attendance_type_display()}) — {self.created_at:%Y-%m-%d %H:%M}"
+        return f"{self.worker.full_name} — {self.date}"
+
+    @property
+    def total_hours(self):
+        if self.check_in_time and self.check_out_time:
+            delta = self.check_out_time - self.check_in_time
+            return round(delta.total_seconds() / 3600, 2)
+        return None
+
+    # Moslik uchun xususiyatlar (backward compatibility properties)
+    @property
+    def user(self):
+        return self.worker
+
+    @property
+    def is_success(self):
+        return self.check_in_success
+
+    @property
+    def created_at(self):
+        return self.check_in_time or self.check_out_time or timezone.now()
+
+    @property
+    def attendance_type(self):
+        if self.check_in_time and not self.check_out_time:
+            return "in"
+        return "out"
+
+    @property
+    def latitude(self):
+        return 0.0
+
+    @property
+    def longitude(self):
+        return 0.0
+
+    @property
+    def distance_meters(self):
+        return 0.0
+
+    @property
+    def face_verified(self):
+        return self.check_in_success
+
+    @property
+    def location_verified(self):
+        return True
+
+    @property
+    def ip_address(self):
+        return ""
+
+    @property
+    def attempts(self):
+        return 1
+
 
 
 class WorkSchedule(models.Model):
     """Ish vaqti jadvali — bo'limlar uchun ish boshlanish va tugash vaqti."""
-    departments = models.ManyToManyField('account.Department', related_name='work_schedules', verbose_name="Bo'limlar")
+    departments = models.ManyToManyField('account.Lavozim', related_name='work_schedules', verbose_name="Bo'limlar")
     start_time = models.TimeField("Ish boshlanish vaqti")
     end_time = models.TimeField("Ish tugash vaqti")
     created_by = models.ForeignKey(

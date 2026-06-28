@@ -27,16 +27,38 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(phone ,password , **extra_fields)
         
 
-class Department(models.Model):
-    name = models.CharField("Bo'lim nomi", max_length=100, unique=True)
-    code = models.CharField("Bo'lim kodi", max_length=50, unique=True, null=True, blank=True)
+class Lavozim(models.Model):
+    name = models.CharField("Lavozim Nomi", max_length=100, unique=True)
+    slug = models.SlugField("Lavozim kodi/slug", max_length=50, unique=True, blank=True)
+    description = models.TextField("Lavozim Tavsifi", blank=True, null=True)
+    show_in_diagram = models.BooleanField("Diagrammada ko'rinishi", default=False)
+    is_default = models.BooleanField("Standart lavozim", default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def delete(self, *args, **kwargs):
+        if self.is_default:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Bu standart lavozimni o'chirib bo'lmaydi.")
+        return super().delete(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            self.slug = slugify(self.name)
+            if not self.slug:
+                self.slug = "".join(c for c in self.name.lower() if c.isalnum() or c == "-")[:50]
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
 
+    @property
+    def code(self):
+        return self.slug
+
     class Meta:
-        verbose_name = "Bo'lim"
-        verbose_name_plural = "Bo'limlar"
+        verbose_name = "Lavozim"
+        verbose_name_plural = "Lavozimlar"
 
 
 class UserModel(AbstractBaseUser , PermissionsMixin):        
@@ -56,7 +78,7 @@ class UserModel(AbstractBaseUser , PermissionsMixin):
         default="ichki_dokon",
     )
     department = models.ForeignKey(
-        Department,
+        Lavozim,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

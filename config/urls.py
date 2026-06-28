@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.urls import path , include
 from django.conf import settings
 from django.conf.urls.static import static
-from inspection.views import AttendanceByDateView, WorkerAttendanceDetailView
+from inspection.views import AttendanceByDateView, WorkerAttendanceDetailView, LavozimListCreateView, LavozimDeleteView
 
 urlpatterns = [
     # Amdin
@@ -22,6 +22,8 @@ urlpatterns = [
     path('api/inspection/' , include('inspection.urls')),
     path('api/attendance/', AttendanceByDateView.as_view(), name='attendance-by-date'),
     path('api/attendance/worker/<int:worker_id>/', WorkerAttendanceDetailView.as_view(), name='worker-attendance-detail'),
+    path('api/lavozim/', LavozimListCreateView.as_view(), name='lavozim-list-create'),
+    path('api/lavozim/<int:pk>/', LavozimDeleteView.as_view(), name='lavozim-delete'),
     path('api/v1/', include('inspection.api_urls')),
 ]
 

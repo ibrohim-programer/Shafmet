@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
 from rest_framework import generics, parsers, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,6 +8,7 @@ from django.db.models import Q
 
 from core.permissions import IsAdmin, IsAdminUser, IsAdminOrManager, IsWorker
 
+from account.models import Lavozim
 from .models import Attendance, WorkZone, WorkSchedule, DailyAttendance
 from .serializers import (
     AttendanceSerializer,
@@ -18,6 +19,8 @@ from .serializers import (
     AttendanceByDateSerializer,
     WorkScheduleSerializer,
     DailyAttendanceSerializer,
+    LavozimSerializer,
+    LavozimCreateSerializer,
 )
 from .services import calculate_cosine_similarity, compare_faces, compare_faces_direct, is_inside_zone
 from .throttling import CheckInRateThrottle
@@ -40,19 +43,7 @@ class CreateWorkerView(APIView):
     @extend_schema(
         tags=["Inspection - Workers"],
         summary="Yangi ishchi yaratish (yuz bilan)",
-        request={
-            "multipart/form-data": {
-                "type": "object",
-                "properties": {
-                    "phone":      {"type": "string",  "example": "+998901112233"},
-                    "full_name":  {"type": "string",  "example": "Karimov Jasur"},
-                    "password":   {"type": "string",  "example": "securepass123"},
-                    "photo":      {"type": "string",  "format": "binary"},
-                    "department": {"type": "integer", "description": "Bo'lim ID si", "example": 1},
-                },
-                "required": ["phone", "full_name", "password", "photo", "department"],
-            }
-        },
+        request=CreateWorkerSerializer,
         responses={201: CreateWorkerSerializer},
     )
     def post(self, request, *args, **kwargs):
@@ -173,41 +164,65 @@ class CheckInView(APIView):
         distance_meters = min_distance
         is_success = face_matched and in_zone
 
-        # Calculate lateness
-        is_late = False
-        from django.utils import timezone
-        if is_success and attendance_type == "in":
-            start_time = None
-            if user.work_start_time:
-                start_time = user.work_start_time
-            else:
-                schedule = None
-                if user.department:
-                    schedule = WorkSchedule.objects.filter(departments=user.department).first()
-                if schedule:
-                    start_time = schedule.start_time
-
-            if start_time:
-                now_time = timezone.localtime(timezone.now()).time()
-                if now_time > start_time:
-                    is_late = True
-
         # ── Davomat yozuvi ──
-        Attendance.objects.create(
-            user=user,
-            attendance_type=attendance_type,
-            latitude=latitude,
-            longitude=longitude,
-            distance_meters=round(distance_meters, 2),
-            face_verified=face_matched,
-            location_verified=in_zone,
-            is_success=is_success,
-            is_late=is_late,
+        from django.utils import timezone
+        today = timezone.localtime().date()
+        attendance, _ = Attendance.objects.get_or_create(
+            worker=user,
+            date=today,
         )
+
+        is_late = False
+        if is_success:
+            if attendance_type == "in" or not attendance.check_in_time:
+                # Calculate lateness
+                start_time = None
+                if user.work_start_time:
+                    start_time = user.work_start_time
+                else:
+                    schedule = None
+                    if user.department:
+                        schedule = WorkSchedule.objects.filter(departments=user.department).first()
+                    if schedule:
+                        start_time = schedule.start_time
+
+                if start_time:
+                    now_time = timezone.localtime(timezone.now()).time()
+                    if now_time > start_time:
+                        is_late = True
+
+                attendance.check_in_time = timezone.now()
+                attendance.check_in_success = is_success
+                attendance.is_late = is_late
+                attendance.save()
+
+                message = "kechikdingiz" if is_late else "muvaffaqiyatli"
+
+            else:  # check-out
+                attendance.check_out_time = timezone.now()
+                attendance.check_out_success = is_success
+                attendance.save()
+                message = "muvaffaqiyatli"
+
+        else:
+            # Failed attempt
+            type_str = "Kirish" if attendance_type == "in" else "Chiqish"
+            if not face_matched and not in_zone:
+                message = f"Yuz tasdiqlanmadi va siz ish hududidan tashqaridasiz ({type_str} rad etildi)."
+            elif not face_matched:
+                message = f"Yuz tasdiqlanmadi. Iltimos, qaytadan urinib ko'ring ({type_str} rad etildi)."
+            else:
+                message = f"Siz ish hududidan tashqaridasiz ({type_str} rad etildi)."
+
+            if attendance_type == "in" or not attendance.check_in_time:
+                attendance.check_in_success = False
+                attendance.save()
+            else:
+                attendance.check_out_success = False
+                attendance.save()
 
         # Update or create DailyAttendance if check-in was successful
         if is_success:
-            today = timezone.localtime().date()
             daily_att, created = DailyAttendance.objects.get_or_create(user=user, date=today)
             if attendance_type == "in":
                 if not daily_att.check_in_time:
@@ -217,17 +232,6 @@ class CheckInView(APIView):
             elif attendance_type == "out":
                 daily_att.check_out_time = timezone.now()
                 daily_att.save()
-
-        # ── Javob xabari ──
-        type_str = "Kirish" if attendance_type == "in" else "Chiqish"
-        if is_success:
-            message = f"{type_str} davomati muvaffaqiyatli qayd etildi."
-        elif not face_matched and not in_zone:
-            message = f"Yuz tasdiqlanmadi va siz ish hududidan tashqaridasiz ({type_str} rad etildi)."
-        elif not face_matched:
-            message = f"Yuz tasdiqlanmadi. Iltimos, qaytadan urinib ko'ring ({type_str} rad etildi)."
-        else:
-            message = f"Siz ish hududidan tashqaridasiz ({type_str} rad etildi)."
 
         # ── Push bildirishnoma yuborish ──
         try:
@@ -306,9 +310,9 @@ class WorkerListView(generics.ListAPIView):
                 queryset = queryset.filter(department_id=int(department))
             else:
                 queryset = queryset.filter(
-                    Q(department__code=department) |
-                    Q(department__code=department.replace("u", "o")) |
-                    Q(department__code=department.replace("o", "u")) |
+                    Q(department__slug=department) |
+                    Q(department__slug=department.replace("u", "o")) |
+                    Q(department__slug=department.replace("o", "u")) |
                     Q(department__name__icontains=department)
                 )
         return queryset
@@ -336,33 +340,30 @@ class AttendanceListView(generics.ListAPIView):
     permission_classes = [IsAdminOrManager]
 
     def get_queryset(self):
-        queryset = Attendance.objects.select_related("user").all().order_by("-created_at")
+        queryset = Attendance.objects.select_related("worker").all().order_by("-date", "-check_in_time")
         
         user_id = self.request.query_params.get("user_id")
         phone = self.request.query_params.get("phone")
         is_success = self.request.query_params.get("is_success")
-        attendance_type = self.request.query_params.get("attendance_type")
         date = self.request.query_params.get("date")
         start_date = self.request.query_params.get("start_date")
         end_date = self.request.query_params.get("end_date")
 
         if user_id:
-            queryset = queryset.filter(user_id=user_id)
+            queryset = queryset.filter(worker_id=user_id)
         if phone:
-            queryset = queryset.filter(user__phone__icontains=phone)
+            queryset = queryset.filter(worker__phone__icontains=phone)
         if is_success is not None:
             if is_success.lower() in ["true", "1"]:
-                queryset = queryset.filter(is_success=True)
+                queryset = queryset.filter(check_in_success=True)
             elif is_success.lower() in ["false", "0"]:
-                queryset = queryset.filter(is_success=False)
-        if attendance_type:
-            queryset = queryset.filter(attendance_type=attendance_type)
+                queryset = queryset.filter(check_in_success=False)
         if date:
-            queryset = queryset.filter(created_at__date=date)
+            queryset = queryset.filter(date=date)
         if start_date:
-            queryset = queryset.filter(created_at__date__gte=start_date)
+            queryset = queryset.filter(date__gte=start_date)
         if end_date:
-            queryset = queryset.filter(created_at__date__lte=end_date)
+            queryset = queryset.filter(date__lte=end_date)
 
         return queryset
 
@@ -372,13 +373,13 @@ class AttendanceListView(generics.ListAPIView):
     summary="Bitta davomat yozuvi tafsilotlari (Admin/Manager/Worker)",
 )
 class AttendanceRetrieveView(generics.RetrieveAPIView):
-    queryset = Attendance.objects.select_related("user").all()
+    queryset = Attendance.objects.select_related("worker").all()
     serializer_class = AttendanceSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
         obj = super().get_object()
-        if self.request.user.role == "worker" and obj.user != self.request.user:
+        if self.request.user.role == "worker" and obj.worker != self.request.user:
             raise permissions.exceptions.PermissionDenied("Sizda ushbu davomat ma'lumotlarini ko'rish huquqi yo'q.")
         return obj
 
@@ -392,7 +393,7 @@ class MyAttendanceListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Attendance.objects.filter(user=self.request.user).order_by("-created_at")
+        return Attendance.objects.filter(worker=self.request.user).order_by("-date")
 
 
 @extend_schema(
@@ -406,12 +407,12 @@ class AttendanceStatsView(APIView):
         from django.utils import timezone
         
         today = timezone.localtime().date()
-        today_attendances = Attendance.objects.filter(created_at__date=today)
+        today_attendances = Attendance.objects.filter(date=today)
         today_total = today_attendances.count()
-        today_success = today_attendances.filter(is_success=True).count()
-        today_failed = today_attendances.filter(is_success=False).count()
+        today_success = today_attendances.filter(check_in_success=True).count()
+        today_failed = today_attendances.filter(check_in_success=False).count()
         
-        today_unique_users = today_attendances.values("user").distinct().count()
+        today_unique_users = today_attendances.values("worker").distinct().count()
         total_workers = User.objects.filter(role="worker").count()
         active_zones_count = WorkZone.objects.filter(is_active=True).count()
 
@@ -428,7 +429,7 @@ class AttendanceStatsView(APIView):
             },
             "overall_stats": {
                 "total_checkins_all_time": Attendance.objects.count(),
-                "successful_checkins_all_time": Attendance.objects.filter(is_success=True).count()
+                "successful_checkins_all_time": Attendance.objects.filter(check_in_success=True).count()
             }
         }
         return Response(data, status=status.HTTP_200_OK)
@@ -466,7 +467,7 @@ class AttendanceByDateView(generics.ListAPIView):
             target_date = parse_date(date_param)
 
         # "Agar tanlangan kunda hech qaysi hodim uchun davomat yozuvi bo'lmasa, jadval bo'sh ko'rsatilishi kerak"
-        if not Attendance.objects.filter(created_at__date=target_date).exists():
+        if not Attendance.objects.filter(date=target_date).exists():
             return User.objects.none()
 
         department = self.request.query_params.get('department')
@@ -475,9 +476,9 @@ class AttendanceByDateView(generics.ListAPIView):
                 queryset = queryset.filter(department_id=int(department))
             else:
                 queryset = queryset.filter(
-                    Q(department__code=department) |
-                    Q(department__code=department.replace("u", "o")) |
-                    Q(department__code=department.replace("o", "u")) |
+                    Q(department__slug=department) |
+                    Q(department__slug=department.replace("u", "o")) |
+                    Q(department__slug=department.replace("o", "u")) |
                     Q(department__name__icontains=department)
                 )
 
@@ -558,6 +559,12 @@ class FaceCheckInOutView(APIView):
         now_dt = timezone.now()
         now_time = timezone.localtime(now_dt).time()
 
+        # Get or create today's Attendance
+        attendance, _ = Attendance.objects.get_or_create(
+            worker=user,
+            date=today,
+        )
+
         if not daily_att.check_in_time:
             # Check-in
             is_late = False
@@ -568,21 +575,14 @@ class FaceCheckInOutView(APIView):
             daily_att.is_late = is_late
             daily_att.save()
 
-            # Also create an Attendance log record for compatibility
-            Attendance.objects.create(
-                user=user,
-                attendance_type="in",
-                latitude=request.data.get("latitude", 0.0),
-                longitude=request.data.get("longitude", 0.0),
-                distance_meters=0.0,
-                face_verified=True,
-                location_verified=True,
-                is_success=True,
-                is_late=is_late,
-            )
+            attendance.check_in_time = now_dt
+            attendance.check_in_success = True
+            attendance.is_late = is_late
+            attendance.save()
 
+            msg = "kechikdingiz" if is_late else "muvaffaqiyatli"
             return Response({
-                "message": "Ishga kelganligi qayd etildi",
+                "message": msg,
                 "check_in_time": daily_att.check_in_time,
                 "is_late": is_late
             }, status=status.HTTP_200_OK)
@@ -592,20 +592,12 @@ class FaceCheckInOutView(APIView):
             daily_att.check_out_time = now_dt
             daily_att.save()
 
-            # Also create an Attendance log record for compatibility
-            Attendance.objects.create(
-                user=user,
-                attendance_type="out",
-                latitude=request.data.get("latitude", 0.0),
-                longitude=request.data.get("longitude", 0.0),
-                distance_meters=0.0,
-                face_verified=True,
-                location_verified=True,
-                is_success=True,
-            )
+            attendance.check_out_time = now_dt
+            attendance.check_out_success = True
+            attendance.save()
 
             return Response({
-                "message": "Ishdan ketganligi qayd etildi",
+                "message": "muvaffaqiyatli",
                 "check_out_time": daily_att.check_out_time
             }, status=status.HTTP_200_OK)
 
@@ -722,3 +714,87 @@ class WorkerAttendanceDetailView(APIView):
             },
             "history": history_data
         }, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["Inspection - Attendance"],
+    summary="Davomat Tarixi jadvali (bitta endpoint orqali)",
+)
+class AttendanceHistoryView(generics.ListAPIView):
+    serializer_class = AttendanceSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        return Attendance.objects.select_related('worker').order_by('-date', '-check_in_time')
+
+
+@extend_schema(
+    tags=["Lavozimlar"],
+    summary="Barcha lavozimlar ro'yxatini olish va yangi lavozim qo'shish (Faqat Admin qo'sha oladi)",
+)
+class LavozimListCreateView(generics.ListCreateAPIView):
+    queryset = Lavozim.objects.all()
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return LavozimCreateSerializer
+        return LavozimSerializer
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAdminUser()]
+        return [permissions.IsAuthenticated()]
+
+
+@extend_schema(
+    tags=["Lavozimlar"],
+    summary="Lavozimni o'chirish (Faqat Admin, standart bo'limlar o'chirilmaydi)",
+)
+class LavozimDeleteView(generics.DestroyAPIView):
+    queryset = Lavozim.objects.all()
+    permission_classes = [IsAdminUser]
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_default:
+            return Response(
+                {"error": "Bu standart lavozimni o'chirish taqiqlangan."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
+
+
+@extend_schema(
+    tags=["Inspection - Workers"],
+    summary="Ishchilarni qidirish (Admin/Manager/Boss)",
+    parameters=[
+        OpenApiParameter(name="q", description="Qidiruv kalit so'zi (F.I.O. yoki Telefon)", required=False, type=str),
+        OpenApiParameter(name="department", description="Bo'lim/Lavozim ID si yoki nomi", required=False, type=str),
+    ]
+)
+class WorkerSearchView(generics.ListAPIView):
+    serializer_class = WorkerDetailSerializer
+    permission_classes = [IsAdminOrManager]
+
+    def get_queryset(self):
+        queryset = User.objects.filter(role="worker").select_related("face_profile", "department").order_by("-created_at")
+        
+        q = self.request.query_params.get("q") or self.request.query_params.get("search")
+        if q:
+            queryset = queryset.filter(
+                Q(full_name__icontains=q) | Q(phone__icontains=q)
+            )
+
+        department = self.request.query_params.get("department")
+        if department:
+            if department.isdigit():
+                queryset = queryset.filter(department_id=int(department))
+            else:
+                queryset = queryset.filter(
+                    Q(department__slug=department) |
+                    Q(department__slug=department.replace("u", "o")) |
+                    Q(department__slug=department.replace("o", "u")) |
+                    Q(department__name__icontains=department)
+                )
+
+        return queryset

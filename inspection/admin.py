@@ -20,13 +20,14 @@ class WorkZoneAdmin(admin.ModelAdmin):
 class AttendanceAdmin(admin.ModelAdmin):
     list_display = [
         "id",
-        "user",
-        "face_verified",
-        "location_verified",
-        "is_success",
-        "distance_meters",
-        "created_at",
+        "worker",
+        "date",
+        "check_in_time",
+        "check_in_success",
+        "check_out_time",
+        "check_out_success",
+        "is_late",
     ]
-    list_filter = ["is_success", "face_verified", "location_verified"]
-    search_fields = ["user__full_name", "user__phone"]
-    readonly_fields = ["created_at"]
+    list_filter = ["check_in_success", "check_out_success", "is_late", "date"]
+    search_fields = ["worker__full_name", "worker__phone"]
+    readonly_fields = ["date"]

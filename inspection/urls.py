@@ -17,12 +17,15 @@ from .views import (
     FaceCheckInOutView,
     MyAttendanceTodayView,
     WorkerAttendanceDetailView,
+    AttendanceHistoryView,
+    WorkerSearchView,
 )
 
 urlpatterns = [
     # Workers
     path("workers/create/", CreateWorkerView.as_view(), name="inspection-create-worker"),
     path("workers/", WorkerListView.as_view(), name="inspection-worker-list"),
+    path("workers/search/", WorkerSearchView.as_view(), name="inspection-workers-search"),
     path("workers/<int:pk>/", WorkerRetrieveUpdateDestroyView.as_view(), name="inspection-worker-detail"),
     
     # Work Zones
@@ -32,6 +35,7 @@ urlpatterns = [
     # Attendances
     path("check-in/", CheckInView.as_view(), name="inspection-check-in"),
     path("attendance/", AttendanceByDateView.as_view(), name="attendance-by-date"),
+    path("attendance/history/", AttendanceHistoryView.as_view(), name="attendance-history"),
     path("attendance/worker/<int:worker_id>/", WorkerAttendanceDetailView.as_view(), name="worker-attendance-detail"),
     path("attendances/", AttendanceListView.as_view(), name="inspection-attendances"),
     path("attendances/<int:pk>/", AttendanceRetrieveView.as_view(), name="inspection-attendance-detail"),

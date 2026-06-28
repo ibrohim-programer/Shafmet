@@ -4,15 +4,20 @@ from django.db import transaction
 
 from .models import Attendance, FaceProfile, WorkZone, WorkSchedule, DailyAttendance
 from .services import get_face_encoding
-from account.models import Department
+from account.models import Lavozim
 
 User = get_user_model()
 
 
-class DepartmentSerializer(serializers.ModelSerializer):
+class LavozimSerializer(serializers.ModelSerializer):
+    code = serializers.CharField(source='slug', read_only=True)
+
     class Meta:
-        model = Department
-        fields = ["id", "name", "code"]
+        model = Lavozim
+        fields = ["id", "name", "slug", "code", "description", "show_in_diagram", "is_default", "created_at"]
+
+# Compatibility alias
+DepartmentSerializer = LavozimSerializer
 
 
 class CreateWorkerSerializer(serializers.Serializer):
@@ -21,9 +26,16 @@ class CreateWorkerSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=150)
     password = serializers.CharField(write_only=True)
     photo = serializers.ImageField(write_only=True)
-    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all(), required=True)
-    work_start_time = serializers.TimeField(required=False, allow_null=True)
-    work_end_time = serializers.TimeField(required=False, allow_null=True)
+    department = serializers.ChoiceField(choices=[], required=True)
+    work_start_time = serializers.TimeField(required=True)
+    work_end_time = serializers.TimeField(required=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        try:
+            self.fields['department'].choices = [(dept.id, dept.name) for dept in Lavozim.objects.all()]
+        except Exception:
+            pass
 
     def validate_phone(self, value):
         phone = str(value).strip()
@@ -34,6 +46,20 @@ class CreateWorkerSerializer(serializers.Serializer):
                 "Bu telefon raqam allaqachon ro'yxatdan o'tgan."
             )
         return phone
+
+    def validate_full_name(self, value):
+        full_name = str(value).strip()
+        if User.objects.filter(full_name=full_name).exists():
+            raise serializers.ValidationError(
+                "Bu to'liq ism (full_name) allaqachon ro'yxatdan o'tgan."
+            )
+        return full_name
+
+    def validate_department(self, value):
+        try:
+            return Lavozim.objects.get(id=int(value))
+        except (ValueError, TypeError, Lavozim.DoesNotExist):
+            raise serializers.ValidationError("Bunday bo'lim mavjud emas.")
 
     def create(self, validated_data):
         photo = validated_data["photo"]
@@ -139,26 +165,41 @@ class WorkZoneSerializer(serializers.ModelSerializer):
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
-    user_phone = serializers.CharField(source="user.phone", read_only=True)
-    user_full_name = serializers.CharField(source="user.full_name", read_only=True)
+    rasm = serializers.SerializerMethodField()
+    ism = serializers.CharField(source='worker.full_name')
+    sana = serializers.DateField(source='date', format='%Y-%m-%d')
+
+    kelgan_vaqt = serializers.DateTimeField(source='check_in_time', format='%H:%M', allow_null=True)
+    turi_kirish = serializers.SerializerMethodField()
+    status_kirish = serializers.BooleanField(source='check_in_success')
+
+    ketgan_vaqt = serializers.DateTimeField(source='check_out_time', format='%H:%M', allow_null=True)
+    turi_chiqish = serializers.SerializerMethodField()
+    status_chiqish = serializers.BooleanField(source='check_out_success', allow_null=True)
+
+    umumiy_soat = serializers.SerializerMethodField()
 
     class Meta:
         model = Attendance
-        fields = [
-            "id",
-            "user",
-            "user_phone",
-            "user_full_name",
-            "attendance_type",
-            "latitude",
-            "longitude",
-            "distance_meters",
-            "face_verified",
-            "location_verified",
-            "is_success",
-            "created_at",
-        ]
-        read_only_fields = fields
+        fields = ['rasm', 'ism', 'sana', 'kelgan_vaqt', 'turi_kirish', 'status_kirish',
+                  'ketgan_vaqt', 'turi_chiqish', 'status_chiqish', 'umumiy_soat']
+
+    def get_rasm(self, obj):
+        request = self.context.get('request')
+        if obj.worker.avatar and request:
+            return request.build_absolute_uri(obj.worker.avatar.url)
+        if hasattr(obj.worker, 'face_profile') and obj.worker.face_profile and obj.worker.face_profile.photo and request:
+            return request.build_absolute_uri(obj.worker.face_profile.photo.url)
+        return None
+
+    def get_turi_kirish(self, obj):
+        return "Ishda" if obj.check_in_time else None
+
+    def get_turi_chiqish(self, obj):
+        return "Ketgan" if obj.check_out_time else None
+
+    def get_umumiy_soat(self, obj):
+        return obj.total_hours
 
 
 class WorkerDetailSerializer(serializers.ModelSerializer):
@@ -168,7 +209,7 @@ class WorkerDetailSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     has_face_profile = serializers.SerializerMethodField()
     department = serializers.PrimaryKeyRelatedField(
-        queryset=Department.objects.all(),
+        queryset=Lavozim.objects.all(),
         required=True,
         help_text="Bo'lim ID si"
     )
@@ -264,15 +305,14 @@ class AttendanceByDateSerializer(serializers.Serializer):
         if not date:
             return None
         att = Attendance.objects.filter(
-            user=obj,
-            created_at__date=date,
-            is_success=True,
-            attendance_type='in'
-        ).order_by('created_at').first()
+            worker=obj,
+            date=date,
+            check_in_success=True
+        ).first()
         
-        if att:
+        if att and att.check_in_time:
             from django.utils import timezone
-            local_time = timezone.localtime(att.created_at)
+            local_time = timezone.localtime(att.check_in_time)
             return local_time.strftime("%H:%M:%S")
         return None
 
@@ -281,29 +321,29 @@ class AttendanceByDateSerializer(serializers.Serializer):
         if not date:
             return 0
             
-        attendances = Attendance.objects.filter(
-            user=obj,
-            created_at__date=date,
-            is_success=True
-        )
-        if not attendances.exists():
+        att = Attendance.objects.filter(
+            worker=obj,
+            date=date,
+            check_in_success=True
+        ).first()
+        if not att:
             return 0
             
         from task_and_assessment.models import Task
         tasks = Task.objects.filter(assigned_to=obj)
         total_tasks = tasks.count()
         
+        has_late = att.is_late
+        
         if total_tasks > 0:
             completed_tasks = tasks.filter(status="completed").count()
             task_completion_rate = (completed_tasks / total_tasks) * 100
             
-            has_late = attendances.filter(is_late=True).exists()
             punctuality_score = 70 if has_late else 100
             
             activity = int(0.6 * task_completion_rate + 0.4 * punctuality_score)
             return min(100, max(0, activity))
         else:
-            has_late = attendances.filter(is_late=True).exists()
             return 70 if has_late else 100
 
 
@@ -353,3 +393,9 @@ class DailyAttendanceSerializer(serializers.ModelSerializer):
         if duration:
             return int(duration.total_seconds())
         return 0
+
+
+class LavozimCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Lavozim
+        fields = ['name', 'description', 'show_in_diagram']
