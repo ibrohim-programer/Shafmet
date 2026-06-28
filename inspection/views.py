@@ -752,6 +752,7 @@ class LavozimListCreateView(generics.ListCreateAPIView):
 )
 class LavozimDeleteView(generics.DestroyAPIView):
     queryset = Lavozim.objects.all()
+    serializer_class = LavozimSerializer
     permission_classes = [IsAdminUser]
 
     def destroy(self, request, *args, **kwargs):

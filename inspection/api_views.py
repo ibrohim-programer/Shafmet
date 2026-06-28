@@ -328,6 +328,7 @@ class AttendanceLateAPIView(generics.ListAPIView):
 
 class AttendanceAbsentAPIView(generics.ListAPIView):
     permission_classes = [IsBossOrAdminOrManager]
+    serializer_class = EmployeeSerializer
     pagination_class = StandardResultsSetPagination
     
     @extend_schema(

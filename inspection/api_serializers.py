@@ -30,7 +30,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at']
 
-    def get_avatar_url(self, obj):
+    def get_avatar_url(self, obj) -> str:
         request = self.context.get('request')
         if obj.avatar and request:
             return request.build_absolute_uri(obj.avatar.url)
@@ -78,7 +78,17 @@ class UserSummarySerializer(serializers.ModelSerializer):
 
 
 class AttendanceDetailSerializer(serializers.ModelSerializer):
-    user = UserSummarySerializer(read_only=True)
+    user = UserSummarySerializer(read_only=True, source='worker')
+    attendance_type = serializers.CharField(read_only=True)
+    latitude = serializers.FloatField(read_only=True)
+    longitude = serializers.FloatField(read_only=True)
+    distance_meters = serializers.FloatField(read_only=True)
+    face_verified = serializers.BooleanField(read_only=True)
+    location_verified = serializers.BooleanField(read_only=True)
+    is_success = serializers.BooleanField(read_only=True)
+    ip_address = serializers.CharField(read_only=True)
+    attempts = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Attendance

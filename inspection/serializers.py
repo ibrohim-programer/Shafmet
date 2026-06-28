@@ -184,7 +184,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
         fields = ['rasm', 'ism', 'sana', 'kelgan_vaqt', 'turi_kirish', 'status_kirish',
                   'ketgan_vaqt', 'turi_chiqish', 'status_chiqish', 'umumiy_soat']
 
-    def get_rasm(self, obj):
+    def get_rasm(self, obj) -> str:
         request = self.context.get('request')
         if obj.worker.avatar and request:
             return request.build_absolute_uri(obj.worker.avatar.url)
@@ -192,13 +192,13 @@ class AttendanceSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(obj.worker.face_profile.photo.url)
         return None
 
-    def get_turi_kirish(self, obj):
+    def get_turi_kirish(self, obj) -> str:
         return "Ishda" if obj.check_in_time else None
 
-    def get_turi_chiqish(self, obj):
+    def get_turi_chiqish(self, obj) -> str:
         return "Ketgan" if obj.check_out_time else None
 
-    def get_umumiy_soat(self, obj):
+    def get_umumiy_soat(self, obj) -> str:
         return obj.total_hours
 
 
@@ -243,7 +243,7 @@ class WorkerDetailSerializer(serializers.ModelSerializer):
             representation["department"] = None
         return representation
 
-    def get_photo_url(self, obj):
+    def get_photo_url(self, obj) -> str:
         request = self.context.get('request')
         if hasattr(obj, 'face_profile') and obj.face_profile.photo:
             if request:
@@ -251,7 +251,7 @@ class WorkerDetailSerializer(serializers.ModelSerializer):
             return obj.face_profile.photo.url
         return None
 
-    def get_has_face_profile(self, obj):
+    def get_has_face_profile(self, obj) -> bool:
         return hasattr(obj, 'face_profile')
 
     def validate_phone(self, value):
@@ -300,7 +300,7 @@ class AttendanceByDateSerializer(serializers.Serializer):
     balance = serializers.DecimalField(max_digits=12, decimal_places=2)
     activity_percent = serializers.SerializerMethodField()
 
-    def get_check_in_time(self, obj):
+    def get_check_in_time(self, obj) -> str:
         date = self.context.get('date')
         if not date:
             return None
@@ -316,7 +316,7 @@ class AttendanceByDateSerializer(serializers.Serializer):
             return local_time.strftime("%H:%M:%S")
         return None
 
-    def get_activity_percent(self, obj):
+    def get_activity_percent(self, obj) -> str:
         date = self.context.get('date')
         if not date:
             return 0
