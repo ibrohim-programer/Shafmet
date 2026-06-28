@@ -6,7 +6,6 @@ from .views import (
     AttendanceRetrieveView,
     AttendanceStatsView,
     CheckInView,
-    CreateWorkerView,
     MyAttendanceListView,
     WorkerListView,
     WorkerRetrieveUpdateDestroyView,
@@ -23,7 +22,6 @@ from .views import (
 
 urlpatterns = [
     # Workers
-    path("workers/create/", CreateWorkerView.as_view(), name="inspection-create-worker"),
     path("workers/", WorkerListView.as_view(), name="inspection-worker-list"),
     path("workers/search/", WorkerSearchView.as_view(), name="inspection-workers-search"),
     path("workers/<int:pk>/", WorkerRetrieveUpdateDestroyView.as_view(), name="inspection-worker-detail"),

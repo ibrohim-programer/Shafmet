@@ -477,7 +477,7 @@ class AttendanceExportAPIView(APIView):
 # ──────────────────────────────────────────────────────────────────────
 # 4. Xodimlarni boshqarish (Face ID integratsiyasi)
 # ──────────────────────────────────────────────────────────────────────
-class EmployeeListCreateAPIView(generics.ListCreateAPIView):
+class EmployeeListCreateAPIView(generics.ListAPIView):
     permission_classes = [IsBossOrAdminOrManager]
     serializer_class = EmployeeSerializer
     pagination_class = StandardResultsSetPagination
@@ -493,13 +493,6 @@ class EmployeeListCreateAPIView(generics.ListCreateAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
-
-    @extend_schema(
-        tags=["Employees V1"],
-        summary="Yangi xodim qo'shish (Admin/Manager/Boss)",
-    )
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
 
     def get_queryset(self):
         branch = self.request.query_params.get('branch')

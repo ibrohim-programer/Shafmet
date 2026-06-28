@@ -26,24 +26,34 @@ class RegisterView(APIView):
                     "full_name": {"type": "string", "example": "Ali Valiyev"},
                     "role": {
                         "type": "string",
-                        "enum": ["boss", "admin", "manager"],
-                        "example": "manager",
+                        "enum": ["boss", "admin", "manager", "worker"],
+                        "example": "worker",
                     },
                     "avatar": {"type": "string", "format": "binary"},
+                    "photo": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "Worker uchun yuz rasmi",
+                    },
+                    "work_start_time": {"type": "string", "format": "time", "example": "09:00:00"},
+                    "work_end_time": {"type": "string", "format": "time", "example": "18:00:00"},
                     "is_active": {"type": "boolean", "example": True},
                 },
                 "required": ["phone", "password", "full_name", "role"],
             }
         },
         responses={201: RegisterSerializers},
-        description="Register a new user account (worker excluded — use inspection endpoint)",
+        description="Register a new user account. Worker uchun photo maydoni orqali yuz rasmi yuklanadi.",
         summary="Create User Account",
     )
     def post(self, request, *args, **kwargs):
         serializer = RegisterSerializers(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        return Response(RegisterSerializers(user).data, status=status.HTTP_201_CREATED)
+        return Response(
+            RegisterSerializers(user, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class LoginView(APIView):

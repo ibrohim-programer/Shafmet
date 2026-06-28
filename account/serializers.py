@@ -2,19 +2,22 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator  
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
+from django.db import transaction
 
 User = get_user_model()
 
-# Register orqali faqat boss, admin, manager yaratish mumkin (worker alohida endpoint orqali)
 REGISTER_ROLE_CHOICES = [
     ("boss", "Boss"),
     ("admin", "Admin"),
     ("manager", "Manager"),
+    ("worker", "Worker"),
 ]
 
 
 class RegisterSerializers(serializers.ModelSerializer):
     role = serializers.ChoiceField(choices=REGISTER_ROLE_CHOICES, required=True)
+    photo = serializers.ImageField(write_only=True, required=False, allow_null=True)
+    photo_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
@@ -25,10 +28,14 @@ class RegisterSerializers(serializers.ModelSerializer):
             "full_name",
             "role",
             "avatar",
+            "photo",
+            "photo_url",
+            "work_start_time",
+            "work_end_time",
             "is_active",
             "is_staff",
         ]
-        read_only_fields = ["id", "is_staff"]
+        read_only_fields = ["id", "photo_url", "is_staff"]
         extra_kwargs = {
             'password' : {'write_only' : True},
             'phone' : {
@@ -48,10 +55,72 @@ class RegisterSerializers(serializers.ModelSerializer):
             raise serializers.ValidationError("Telefon raqam +998 bilan boshlanishi shart.")
         return phone
 
+    def validate(self, attrs):
+        role = attrs.get("role")
+        photo = attrs.get("photo")
+
+        if role == "worker" and not photo:
+            raise serializers.ValidationError(
+                {"photo": "Worker yaratish uchun yuz rasmi (photo) yuborilishi shart."}
+            )
+        return attrs
+
     def create(self, validated_data):
+        photo = validated_data.pop("photo", None)
         password = validated_data.pop("password")
-        user = User.objects.create_user(password=password, **validated_data)
+
+        encoding = None
+        if photo:
+            from inspection.services import get_face_encoding
+
+            try:
+                encoding = get_face_encoding(photo)
+            except Exception:
+                raise serializers.ValidationError(
+                    {"photo": "Yuz rasmini o'qib bo'lmadi. Iltimos, aniq yuz rasmi yuklang."}
+                )
+            if encoding is None:
+                raise serializers.ValidationError(
+                    {"photo": "Rasmda yuz topilmadi. Iltimos, aniq yuz rasmi yuklang."}
+                )
+            try:
+                photo.seek(0)
+            except Exception:
+                pass
+
+        with transaction.atomic():
+            user = User.objects.create_user(password=password, **validated_data)
+            if photo:
+                from inspection.models import FaceProfile
+
+                FaceProfile.objects.create(
+                    user=user,
+                    encoding=encoding,
+                    photo=photo,
+                )
         return user
+
+    def get_photo_url(self, obj):
+        request = self.context.get("request")
+        image = None
+
+        try:
+            face_profile = obj.face_profile
+        except Exception:
+            face_profile = None
+
+        if face_profile and face_profile.photo:
+            image = face_profile.photo
+        elif obj.avatar:
+            image = obj.avatar
+
+        if not image:
+            return None
+
+        url = image.url
+        if request:
+            return request.build_absolute_uri(url)
+        return url
            
 class LoginSerializers(serializers.Serializer):
     phone = serializers.CharField(required = True)
