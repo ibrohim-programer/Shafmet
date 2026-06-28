@@ -3,8 +3,16 @@ from rest_framework.validators import UniqueValidator
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
 from django.db import transaction
+from .models import Lavozim
 
 User = get_user_model()
+
+class LavozimSerializer(serializers.ModelSerializer):
+    code = serializers.CharField(source='slug', read_only=True)
+
+    class Meta:
+        model = Lavozim
+        fields = ["id", "name", "slug", "code", "description", "show_in_diagram", "is_default", "created_at"]
 
 REGISTER_ROLE_CHOICES = [
     ("boss", "Boss"),
@@ -18,6 +26,7 @@ class RegisterSerializers(serializers.ModelSerializer):
     role = serializers.ChoiceField(choices=REGISTER_ROLE_CHOICES, required=True)
     photo = serializers.ImageField(write_only=True, required=False, allow_null=True)
     photo_url = serializers.SerializerMethodField(read_only=True)
+    department_detail = LavozimSerializer(source='department', read_only=True)
 
     class Meta:
         model = User
@@ -30,6 +39,11 @@ class RegisterSerializers(serializers.ModelSerializer):
             "avatar",
             "photo",
             "photo_url",
+            "branch",
+            "department",
+            "department_detail",
+            "salary",
+            "balance",
             "work_start_time",
             "work_end_time",
             "is_active",
@@ -142,6 +156,8 @@ class UserMinimalSerializer(serializers.ModelSerializer):
         
 
 class ProfileSerializer(serializers.ModelSerializer):
+    department_detail = LavozimSerializer(source='department', read_only=True)
+
     class Meta:
         model = User
         fields = [
@@ -150,14 +166,23 @@ class ProfileSerializer(serializers.ModelSerializer):
             "full_name",
             "role",
             "avatar",
+            "branch",
+            "department",
+            "department_detail",
+            "salary",
+            "balance",
+            "work_start_time",
+            "work_end_time",
             "is_active",
             "is_staff",
             "created_at",
         ]
-        read_only_fields = ["id", "phone", "role", "is_active", "is_staff", "created_at"]
+        read_only_fields = ["id", "phone", "role", "is_active", "is_staff", "created_at", "salary", "balance"]
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
+    department_detail = LavozimSerializer(source='department', read_only=True)
+
     class Meta:
         model = User
         fields = [
@@ -166,6 +191,13 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "full_name",
             "role",
             "avatar",
+            "branch",
+            "department",
+            "department_detail",
+            "salary",
+            "balance",
+            "work_start_time",
+            "work_end_time",
             "is_active",
             "is_staff",
             "created_at",

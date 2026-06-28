@@ -18,11 +18,13 @@ from .views import (
     WorkerAttendanceDetailView,
     AttendanceHistoryView,
     WorkerSearchView,
+    CreateWorkerView,
 )
 
 urlpatterns = [
     # Workers
     path("workers/", WorkerListView.as_view(), name="inspection-worker-list"),
+    path("workers/create/", CreateWorkerView.as_view(), name="inspection-create-worker"),
     path("workers/search/", WorkerSearchView.as_view(), name="inspection-workers-search"),
     path("workers/<int:pk>/", WorkerRetrieveUpdateDestroyView.as_view(), name="inspection-worker-detail"),
     

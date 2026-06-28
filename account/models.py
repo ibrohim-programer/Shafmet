@@ -98,6 +98,17 @@ class UserModel(AbstractBaseUser , PermissionsMixin):
     USERNAME_FIELD = "phone"        
     REQUIRED_FIELDS = ["full_name"]  
     
+    def save(self, *args, **kwargs):
+        # Sync department and branch
+        if self.department:
+            self.branch = self.department.slug
+        elif self.branch:
+            try:
+                self.department = Lavozim.objects.get(slug=self.branch)
+            except Lavozim.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+    
     def __str__(self):
         return f"{self.full_name} ({self.get_role_display()})"
     

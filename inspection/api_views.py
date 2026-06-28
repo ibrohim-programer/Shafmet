@@ -477,7 +477,7 @@ class AttendanceExportAPIView(APIView):
 # ──────────────────────────────────────────────────────────────────────
 # 4. Xodimlarni boshqarish (Face ID integratsiyasi)
 # ──────────────────────────────────────────────────────────────────────
-class EmployeeListCreateAPIView(generics.ListAPIView):
+class EmployeeListCreateAPIView(generics.ListCreateAPIView):
     permission_classes = [IsBossOrAdminOrManager]
     serializer_class = EmployeeSerializer
     pagination_class = StandardResultsSetPagination
