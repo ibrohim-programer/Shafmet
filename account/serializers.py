@@ -3,11 +3,12 @@ from rest_framework.validators import UniqueValidator
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
 from django.db import transaction
+from drf_spectacular.utils import extend_schema_field
 from .models import Lavozim
 
 User = get_user_model()
 
-class LavozimSerializer(serializers.ModelSerializer):
+class AccountLavozimSerializer(serializers.ModelSerializer):
     code = serializers.CharField(source='slug', read_only=True)
 
     class Meta:
@@ -26,7 +27,7 @@ class RegisterSerializers(serializers.ModelSerializer):
     role = serializers.ChoiceField(choices=REGISTER_ROLE_CHOICES, required=True)
     photo = serializers.ImageField(write_only=True, required=False, allow_null=True)
     photo_url = serializers.SerializerMethodField(read_only=True)
-    department_detail = LavozimSerializer(source='department', read_only=True)
+    department_detail = AccountLavozimSerializer(source='department', read_only=True)
 
     class Meta:
         model = User
@@ -114,6 +115,7 @@ class RegisterSerializers(serializers.ModelSerializer):
                 )
         return user
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_photo_url(self, obj):
         request = self.context.get("request")
         image = None
@@ -156,7 +158,7 @@ class UserMinimalSerializer(serializers.ModelSerializer):
         
 
 class ProfileSerializer(serializers.ModelSerializer):
-    department_detail = LavozimSerializer(source='department', read_only=True)
+    department_detail = AccountLavozimSerializer(source='department', read_only=True)
 
     class Meta:
         model = User
@@ -181,7 +183,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
-    department_detail = LavozimSerializer(source='department', read_only=True)
+    department_detail = AccountLavozimSerializer(source='department', read_only=True)
 
     class Meta:
         model = User

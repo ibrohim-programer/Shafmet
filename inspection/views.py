@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter, inline_serializer
 from rest_framework import generics, parsers, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -396,9 +396,38 @@ class MyAttendanceListView(generics.ListAPIView):
         return Attendance.objects.filter(worker=self.request.user).order_by("-date")
 
 
+from rest_framework import serializers
+
 @extend_schema(
     tags=["Inspection - Attendance"],
     summary="Davomat statistikasi (Admin/Manager)",
+    responses={
+        200: inline_serializer(
+            name='AttendanceStatsResponse',
+            fields={
+                'date': serializers.DateField(),
+                'total_workers': serializers.IntegerField(),
+                'active_zones_count': serializers.IntegerField(),
+                'today_stats': inline_serializer(
+                    name='TodayStatsInfo',
+                    fields={
+                        'total_checkins': serializers.IntegerField(),
+                        'successful_checkins': serializers.IntegerField(),
+                        'failed_checkins': serializers.IntegerField(),
+                        'unique_workers_checked_in': serializers.IntegerField(),
+                        'absent_workers': serializers.IntegerField(),
+                    }
+                ),
+                'overall_stats': inline_serializer(
+                    name='OverallStatsInfo',
+                    fields={
+                        'total_checkins_all_time': serializers.IntegerField(),
+                        'successful_checkins_all_time': serializers.IntegerField(),
+                    }
+                )
+            }
+        )
+    }
 )
 class AttendanceStatsView(APIView):
     permission_classes = [IsAdminOrManager]
@@ -607,6 +636,19 @@ class FaceCheckInOutView(APIView):
 @extend_schema(
     tags=["Inspection - Attendance"],
     summary="Xodimning bugungi davomat ma'lumotlari (Jonli hisoblagich uchun)",
+    responses={
+        200: inline_serializer(
+            name='MyAttendanceTodayResponse',
+            fields={
+                'department': serializers.CharField(allow_null=True),
+                'check_in_time': serializers.DateTimeField(allow_null=True),
+                'check_out_time': serializers.DateTimeField(allow_null=True),
+                'worked_seconds': serializers.IntegerField(),
+                'schedule': serializers.CharField(),
+                'is_late': serializers.BooleanField(),
+            }
+        )
+    }
 )
 class MyAttendanceTodayView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -644,6 +686,58 @@ class MyAttendanceTodayView(APIView):
 @extend_schema(
     tags=["Inspection - Workers"],
     summary="Admin bosgan xodimning davomat tarixi va statistikasi (ID bo'yicha)",
+    responses={
+        200: inline_serializer(
+            name='WorkerAttendanceDetailResponse',
+            fields={
+                'worker': inline_serializer(
+                    name='WorkerDetailInfo',
+                    fields={
+                        'id': serializers.IntegerField(),
+                        'full_name': serializers.CharField(),
+                        'phone': serializers.CharField(),
+                        'branch': serializers.CharField(),
+                        'branch_display': serializers.CharField(),
+                        'department': inline_serializer(
+                            name='WorkerDepartmentInfo',
+                            fields={
+                                'id': serializers.IntegerField(),
+                                'name': serializers.CharField(),
+                                'code': serializers.CharField(),
+                            }
+                        ),
+                        'balance': serializers.FloatField(),
+                        'salary': serializers.FloatField(),
+                        'is_active': serializers.BooleanField(),
+                        'created_at': serializers.DateTimeField(allow_null=True),
+                    }
+                ),
+                'stats': inline_serializer(
+                    name='WorkerAttendanceStats',
+                    fields={
+                        'total_days_logged': serializers.IntegerField(),
+                        'present_days': serializers.IntegerField(),
+                        'absent_days': serializers.IntegerField(),
+                        'late_days': serializers.IntegerField(),
+                        'total_worked_seconds': serializers.IntegerField(),
+                        'total_worked_time_display': serializers.CharField(),
+                    }
+                ),
+                'history': inline_serializer(
+                    name='WorkerAttendanceHistoryItem',
+                    fields={
+                        'id': serializers.IntegerField(),
+                        'date': serializers.CharField(allow_null=True),
+                        'check_in_time': serializers.DateTimeField(allow_null=True),
+                        'check_out_time': serializers.DateTimeField(allow_null=True),
+                        'is_late': serializers.BooleanField(),
+                        'worked_seconds': serializers.IntegerField(),
+                    },
+                    many=True
+                )
+            }
+        )
+    }
 )
 class WorkerAttendanceDetailView(APIView):
     permission_classes = [IsAdminOrManager]

@@ -5,12 +5,12 @@ from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from openpyxl import Workbook
 
-from rest_framework import status, permissions, generics, parsers
+from rest_framework import status, permissions, generics, parsers, serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django.contrib.auth import get_user_model
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes, inline_serializer
 
 from .models import Attendance, FaceProfile
 from .services import get_face_encoding
@@ -64,7 +64,35 @@ class DashboardSummaryAPIView(APIView):
             OpenApiParameter("start_date", str, description="Boshlanish sanasi (YYYY-MM-DD)", required=False),
             OpenApiParameter("end_date", str, description="Tugash sanasi (YYYY-MM-DD)", required=False),
             OpenApiParameter("branch", str, description="Bo'lim filtri (ichki_dokon, tashqi_dokon, personal)", required=False),
-        ]
+        ],
+        responses={
+            200: inline_serializer(
+                name='DashboardSummaryResponse',
+                fields={
+                    'present': inline_serializer(
+                        name='DashboardSummaryPresent',
+                        fields={
+                            'count': serializers.IntegerField(),
+                            'trend_percentage': serializers.FloatField(),
+                        }
+                    ),
+                    'late': inline_serializer(
+                        name='DashboardSummaryLate',
+                        fields={
+                            'count': serializers.IntegerField(),
+                            'trend_percentage': serializers.FloatField(),
+                        }
+                    ),
+                    'absent': inline_serializer(
+                        name='DashboardSummaryAbsent',
+                        fields={
+                            'count': serializers.IntegerField(),
+                            'trend_percentage': serializers.FloatField(),
+                        }
+                    ),
+                }
+            )
+        }
     )
     def get(self, request):
         start_date, end_date = get_date_range(request)
@@ -141,7 +169,20 @@ class DashboardChartsAPIView(APIView):
         parameters=[
             OpenApiParameter("start_date", str, description="Boshlanish sanasi (YYYY-MM-DD)", required=False),
             OpenApiParameter("end_date", str, description="Tugash sanasi (YYYY-MM-DD)", required=False),
-        ]
+        ],
+        responses={
+            200: inline_serializer(
+                name='DashboardChartBranchResponse',
+                fields={
+                    'branch': serializers.CharField(),
+                    'name': serializers.CharField(),
+                    'percentage': serializers.FloatField(),
+                    'present': serializers.IntegerField(),
+                    'total': serializers.IntegerField(),
+                },
+                many=True
+            )
+        }
     )
     def get(self, request):
         start_date, end_date = get_date_range(request)
@@ -407,7 +448,10 @@ class AttendanceExportAPIView(APIView):
             OpenApiParameter("start_date", str, description="Boshlanish sanasi", required=False),
             OpenApiParameter("end_date", str, description="Tugash sanasi", required=False),
             OpenApiParameter("search", str, description="Ism yoki telefon bo'yicha qidiruv", required=False),
-        ]
+        ],
+        responses={
+            200: OpenApiTypes.BINARY
+        }
     )
     def get(self, request):
         start_date, end_date = get_date_range(request)
