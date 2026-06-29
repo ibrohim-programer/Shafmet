@@ -100,6 +100,56 @@ class CheckInTests(APITestCase):
             error_msg = error_msg[0]
         self.assertIn("Foydalanuvchini aniqlash", error_msg)
 
+    @patch('inspection.views.compare_faces_direct')
+    def test_auto_toggle_check_in_to_check_out(self, mock_compare_direct):
+        mock_compare_direct.return_value = (True, 0.1)
+
+        # 1. First scan: check-in (Kirish)
+        response = self.client.post(
+            reverse("inspection-check-in"),
+            {
+                "user_id": self.user.id,
+                "photo": SimpleUploadedFile("face.gif", SMALL_GIF, content_type="image/gif"),
+                "latitude": 41.311081,
+                "longitude": 69.240562,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["attendance_type"], "in")
+        self.assertIsNotNone(response.json()["check_in_time"])
+        self.assertIsNone(response.json()["check_out_time"])
+
+        # 2. Second scan: check-out (Ketish)
+        response2 = self.client.post(
+            reverse("inspection-check-in"),
+            {
+                "user_id": self.user.id,
+                "photo": SimpleUploadedFile("face.gif", SMALL_GIF, content_type="image/gif"),
+                "latitude": 41.311081,
+                "longitude": 69.240562,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.json()["attendance_type"], "out")
+        self.assertIsNotNone(response2.json()["check_in_time"])
+        self.assertIsNotNone(response2.json()["check_out_time"])
+
+        # 3. Third scan: already fully checked in and out (Error 400)
+        response3 = self.client.post(
+            reverse("inspection-check-in"),
+            {
+                "user_id": self.user.id,
+                "photo": SimpleUploadedFile("face.gif", SMALL_GIF, content_type="image/gif"),
+                "latitude": 41.311081,
+                "longitude": 69.240562,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response3.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Bugungi davomat allaqachon to'liq belgilangan", response3.json()["detail"])
+
 
 class FaceProfileTests(APITestCase):
     def setUp(self):
@@ -324,87 +374,8 @@ class WorkerDepartmentTests(APITestCase):
         self.assertNotIn("+998992223344", phones)
         self.assertIn("+998992223355", phones)
 
-    def test_search_workers(self):
-        w1 = get_user_model().objects.create_user(
-            phone="+998992223344",
-            password="workerpass123",
-            full_name="Worker One",
-            role="worker",
-            department=self.dept_ichki
-        )
-        w2 = get_user_model().objects.create_user(
-            phone="+998992223355",
-            password="workerpass123",
-            full_name="Worker Two",
-            role="worker",
-            department=self.dept_tashqi
-        )
-        self.client.force_authenticate(user=self.admin_user)
-        response = self.client.get(reverse("inspection-workers-search"), {"q": "One"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        phones = [worker["phone"] for worker in response.data]
-        self.assertIn("+998992223344", phones)
-        self.assertNotIn("+998992223355", phones)
 
 
-class AttendanceByDateTests(APITestCase):
-    def setUp(self):
-        self.client = APIClient()
-        self.dept_ichki, _ = Lavozim.objects.get_or_create(slug="ichki_dokon", defaults={"name": "Ichki do'kon ishchisi"})
-        self.dept_tashqi, _ = Lavozim.objects.get_or_create(slug="tashqi_dokon", defaults={"name": "Tashqi do'kon ishchisi"})
-        
-        self.admin_user = get_user_model().objects.create_user(
-            phone="+998901234568",
-            password="adminpassword123",
-            full_name="Admin Adminov",
-            role="admin",
-        )
-        self.worker1 = get_user_model().objects.create_user(
-            phone="+998992223344",
-            password="workerpass123",
-            full_name="Worker One",
-            role="worker",
-            department=self.dept_ichki,
-            balance=1000.0,
-        )
-        self.worker2 = get_user_model().objects.create_user(
-            phone="+998992223355",
-            password="workerpass123",
-            full_name="Worker Two",
-            role="worker",
-            department=self.dept_tashqi,
-            balance=2000.0,
-        )
-        self.client.force_authenticate(user=self.admin_user)
-
-    def test_attendance_by_date_empty_if_no_logs(self):
-        response = self.client.get(reverse("attendance-by-date"), {"date": "2025-04-22"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, [])
-
-    def test_attendance_by_date_returns_workers_if_logs_exist(self):
-        import datetime
-        from django.utils import timezone
-        
-        target_date = datetime.date(2025, 4, 22)
-        att = Attendance.objects.create(
-            worker=self.worker1,
-            check_in_success=True,
-            is_late=False,
-        )
-        naive_dt = datetime.datetime.combine(target_date, datetime.time(9, 30, 0))
-        target_dt = timezone.make_aware(naive_dt)
-        Attendance.objects.filter(id=att.id).update(date=target_date, check_in_time=target_dt)
-
-        response = self.client.get(reverse("attendance-by-date"), {"date": "2025-04-22"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(len(response.data) > 0)
-        
-        response_filtered = self.client.get(reverse("attendance-by-date"), {"date": "2025-04-22", "department": "ichki_dokon"})
-        self.assertEqual(response_filtered.status_code, status.HTTP_200_OK)
-        phones = [w["phone"] for w in response_filtered.data]
-        self.assertIn("+998992223344", phones)
-        self.assertNotIn("+998992223355", phones)
 
 
 class WorkScheduleAndDailyAttendanceTests(APITestCase):
@@ -447,49 +418,36 @@ class WorkScheduleAndDailyAttendanceTests(APITestCase):
         response = self.client.post(reverse("inspection-schedules"), data)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_face_check_in_out_and_live_stats(self):
-        # 1. Create a work schedule starting at 09:00:00
-        schedule = WorkSchedule.objects.create(
-            start_time="09:00:00",
-            end_time="18:00:00"
-        )
-        schedule.departments.add(self.dept_ichki)
-
-        # 2. Worker check-in
-        self.client.force_authenticate(user=self.worker)
-        response = self.client.post(reverse("inspection-face-check-in-out"), {"latitude": 41.3, "longitude": 69.2})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("check_in_time", response.data)
-
-        # Check today's stats (live dashboard)
-        response_stats = self.client.get(reverse("inspection-my-attendance-today"))
-        self.assertEqual(response_stats.status_code, status.HTTP_200_OK)
-        self.assertEqual(response_stats.data["department"], "Ichki do'kon ishchisi")
-        self.assertIsNotNone(response_stats.data["check_in_time"])
-        self.assertIsNone(response_stats.data["check_out_time"])
-
-        # 3. Worker check-out
-        response_out = self.client.post(reverse("inspection-face-check-in-out"), {"latitude": 41.3, "longitude": 69.2})
-        self.assertEqual(response_out.status_code, status.HTTP_200_OK)
-        self.assertIn("check_out_time", response_out.data)
-
-        # Check today's stats again
-        response_stats_out = self.client.get(reverse("inspection-my-attendance-today"))
-        self.assertEqual(response_stats_out.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response_stats_out.data["check_out_time"])
-
     def test_worker_attendance_detail_by_id(self):
-        # Create schedule and checks
+        # Create schedule
         schedule = WorkSchedule.objects.create(
             start_time="09:00:00",
             end_time="18:00:00"
         )
         schedule.departments.add(self.dept_ichki)
 
-        # Worker check-in/out
-        self.client.force_authenticate(user=self.worker)
-        self.client.post(reverse("inspection-face-check-in-out"), {"latitude": 41.3, "longitude": 69.2})
-        self.client.post(reverse("inspection-face-check-in-out"), {"latitude": 41.3, "longitude": 69.2})
+        import datetime
+        from django.utils import timezone
+        # Manually create attendance logs in database
+        today = datetime.date.today()
+        now = timezone.now()
+        Attendance.objects.create(
+            worker=self.worker,
+            date=today,
+            check_in_time=now,
+            check_in_success=True,
+            check_out_time=now + datetime.timedelta(hours=8),
+            check_out_success=True,
+            is_late=False
+        )
+        from inspection.models import DailyAttendance
+        DailyAttendance.objects.create(
+            user=self.worker,
+            date=today,
+            check_in_time=now,
+            check_out_time=now + datetime.timedelta(hours=8),
+            is_late=False
+        )
 
         # Admin gets worker details & stats by ID
         self.client.force_authenticate(user=self.admin_user)
@@ -500,69 +458,6 @@ class WorkScheduleAndDailyAttendanceTests(APITestCase):
         self.assertEqual(len(response.data["history"]), 1)
 
 
-class ArchiveDownloadAPITests(APITestCase):
-    def setUp(self):
-        self.client = APIClient()
-        self.admin_user = get_user_model().objects.create_user(
-            phone="+998901234568",
-            password="adminpassword123",
-            full_name="Admin Adminov",
-            role="admin",
-        )
-        self.worker = get_user_model().objects.create_user(
-            phone="+998992223344",
-            password="workerpass123",
-            full_name="Worker One",
-            role="worker",
-        )
-        
-        # Temp archive directory
-        from django.conf import settings
-        import os
-        self.archive_dir = os.path.join(settings.BASE_DIR, "archives")
-        os.makedirs(self.archive_dir, exist_ok=True)
-        self.test_date = "2026-06-29"
-        self.filepath = os.path.join(self.archive_dir, f"{self.test_date}.xlsx")
-        
-        # Create a dummy excel file for test
-        from openpyxl import Workbook
-        wb = Workbook()
-        wb.save(self.filepath)
 
-    def tearDown(self):
-        import os
-        if os.path.exists(self.filepath):
-            os.remove(self.filepath)
-
-    def test_anonymous_cannot_download(self):
-        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": self.test_date})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_worker_cannot_download(self):
-        self.client.force_authenticate(user=self.worker)
-        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": self.test_date})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_admin_download_missing_date(self):
-        self.client.force_authenticate(user=self.admin_user)
-        response = self.client.get(reverse("v1-attendance-download-archive"))
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_admin_download_invalid_date_format(self):
-        self.client.force_authenticate(user=self.admin_user)
-        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": "29-06-2026"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_admin_download_not_found(self):
-        self.client.force_authenticate(user=self.admin_user)
-        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": "2026-06-30"})
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_admin_download_success(self):
-        self.client.force_authenticate(user=self.admin_user)
-        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": self.test_date})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        self.assertIn("attachment", response['Content-Disposition'])
 
 

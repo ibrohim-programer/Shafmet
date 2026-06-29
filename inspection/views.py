@@ -164,17 +164,31 @@ class CheckInView(APIView):
         distance_meters = min_distance
         is_success = face_matched and in_zone
 
-        # ── Davomat yozuvi ──
+        # ── Davomat yozuvi va Avtomatik Davomat Turini Aniqlash ──
         from django.utils import timezone
+        import zoneinfo
+        tashkent_tz = zoneinfo.ZoneInfo("Asia/Tashkent")
         today = timezone.localtime().date()
+        
         attendance, _ = Attendance.objects.get_or_create(
             worker=user,
             date=today,
         )
 
+        # Davomat turini avtomatik aniqlash (State machine)
+        if attendance.check_in_time and attendance.check_in_success:
+            if attendance.check_out_time and attendance.check_out_success:
+                return Response(
+                    {"detail": "Bugungi davomat allaqachon to'liq belgilangan (Kirish va chiqish bajarilgan)."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            attendance_type = "out"
+        else:
+            attendance_type = "in"
+
         is_late = False
         if is_success:
-            if attendance_type == "in" or not attendance.check_in_time:
+            if attendance_type == "in":
                 # Calculate lateness
                 start_time = None
                 if user.work_start_time:
@@ -214,7 +228,7 @@ class CheckInView(APIView):
             else:
                 message = f"Siz ish hududidan tashqaridasiz ({type_str} rad etildi)."
 
-            if attendance_type == "in" or not attendance.check_in_time:
+            if attendance_type == "in":
                 attendance.check_in_success = False
                 attendance.save()
             else:
@@ -248,6 +262,11 @@ class CheckInView(APIView):
         except Exception:
             pass
 
+        def to_local_iso(dt):
+            if dt:
+                return timezone.localtime(dt, tashkent_tz).isoformat()
+            return None
+
         return Response(
             {
                 "success":           is_success,
@@ -256,6 +275,8 @@ class CheckInView(APIView):
                 "distance_meters":   round(distance_meters, 2),
                 "attendance_type":   attendance_type,
                 "message":           message,
+                "check_in_time":     to_local_iso(attendance.check_in_time),
+                "check_out_time":    to_local_iso(attendance.check_out_time),
             },
             status=status.HTTP_200_OK if is_success else status.HTTP_401_UNAUTHORIZED,
         )
