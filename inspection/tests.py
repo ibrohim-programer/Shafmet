@@ -499,3 +499,70 @@ class WorkScheduleAndDailyAttendanceTests(APITestCase):
         self.assertEqual(response.data["stats"]["total_days_logged"], 1)
         self.assertEqual(len(response.data["history"]), 1)
 
+
+class ArchiveDownloadAPITests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_user = get_user_model().objects.create_user(
+            phone="+998901234568",
+            password="adminpassword123",
+            full_name="Admin Adminov",
+            role="admin",
+        )
+        self.worker = get_user_model().objects.create_user(
+            phone="+998992223344",
+            password="workerpass123",
+            full_name="Worker One",
+            role="worker",
+        )
+        
+        # Temp archive directory
+        from django.conf import settings
+        import os
+        self.archive_dir = os.path.join(settings.BASE_DIR, "archives")
+        os.makedirs(self.archive_dir, exist_ok=True)
+        self.test_date = "2026-06-29"
+        self.filepath = os.path.join(self.archive_dir, f"{self.test_date}.xlsx")
+        
+        # Create a dummy excel file for test
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.save(self.filepath)
+
+    def tearDown(self):
+        import os
+        if os.path.exists(self.filepath):
+            os.remove(self.filepath)
+
+    def test_anonymous_cannot_download(self):
+        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": self.test_date})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_worker_cannot_download(self):
+        self.client.force_authenticate(user=self.worker)
+        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": self.test_date})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_download_missing_date(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(reverse("v1-attendance-download-archive"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_download_invalid_date_format(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": "29-06-2026"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_download_not_found(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": "2026-06-30"})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_admin_download_success(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(reverse("v1-attendance-download-archive"), {"date": self.test_date})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.assertIn("attachment", response['Content-Disposition'])
+
+

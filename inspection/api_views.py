@@ -518,6 +518,81 @@ class AttendanceExportAPIView(APIView):
         return response
 
 
+class AttendanceDownloadArchiveAPIView(APIView):
+    permission_classes = [IsBossOrAdminOrManager]
+
+    @extend_schema(
+        tags=["Attendance V1"],
+        summary="Arxivlangan davomat faylini (Excel) yuklab olish",
+        parameters=[
+            OpenApiParameter("date", str, description="Arxiv sanasi (YYYY-MM-DD)", required=True),
+        ],
+        responses={
+            200: OpenApiTypes.BINARY,
+            400: inline_serializer(
+                name='ArchiveDownloadErrorResponse',
+                fields={
+                    'detail': serializers.CharField()
+                }
+            ),
+            404: inline_serializer(
+                name='ArchiveDownloadNotFoundResponse',
+                fields={
+                    'detail': serializers.CharField()
+                }
+            )
+        }
+    )
+    def get(self, request):
+        import os
+        from django.conf import settings
+        
+        date_str = request.query_params.get('date')
+        if not date_str:
+            return Response(
+                {"detail": "Sana kiritilishi shart (date=YYYY-MM-DD)."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # Sana formatini tekshirish
+            datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            return Response(
+                {"detail": "Sana formati noto'g'ri. YYYY-MM-DD formatidan foydalaning."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        filename = f"{date_str}.xlsx"
+        
+        # 1. Loyiha ichidagi arxiv papkasidan qidirish (Serverdagisi)
+        primary_dir = os.path.join(settings.BASE_DIR, "archives")
+        filepath = os.path.join(primary_dir, filename)
+
+        # 2. Topilmasa, Documents papkasidan qidirish (Fallback)
+        if not os.path.exists(filepath):
+            fallback_dir = "/home/ubuntu/Documents"
+            filepath = os.path.join(fallback_dir, filename)
+
+        if not os.path.exists(filepath):
+            return Response(
+                {"detail": f"{date_str} sanasi uchun arxivlangan davomat fayli topilmadi."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            response = HttpResponse(file_data, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            response['Content-Disposition'] = f'attachment; filename="davomat_archive_{date_str}.xlsx"'
+            return response
+        except Exception as e:
+            return Response(
+                {"detail": f"Faylni o'qishda xatolik yuz berdi: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 # ──────────────────────────────────────────────────────────────────────
 # 4. Xodimlarni boshqarish (Face ID integratsiyasi)
 # ──────────────────────────────────────────────────────────────────────

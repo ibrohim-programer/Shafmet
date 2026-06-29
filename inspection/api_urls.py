@@ -8,6 +8,7 @@ from .api_views import (
     AttendanceLateAPIView,
     AttendanceAbsentAPIView,
     AttendanceExportAPIView,
+    AttendanceDownloadArchiveAPIView,
     EmployeeListCreateAPIView,
     EmployeeUploadFaceAPIView,
 )
@@ -23,6 +24,7 @@ urlpatterns = [
     path("attendance/late/", AttendanceLateAPIView.as_view(), name="v1-attendance-late"),
     path("attendance/absent/", AttendanceAbsentAPIView.as_view(), name="v1-attendance-absent"),
     path("attendance/export/", AttendanceExportAPIView.as_view(), name="v1-attendance-export"),
+    path("attendance/download-archive/", AttendanceDownloadArchiveAPIView.as_view(), name="v1-attendance-download-archive"),
 
     # Employee Management
     path("employees/", EmployeeListCreateAPIView.as_view(), name="v1-employees-list-create"),
