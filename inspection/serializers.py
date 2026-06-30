@@ -299,6 +299,8 @@ class AttendanceByDateSerializer(serializers.Serializer):
     check_in_time = serializers.SerializerMethodField()
     balance = serializers.DecimalField(max_digits=12, decimal_places=2)
     activity_percent = serializers.SerializerMethodField()
+    is_excused = serializers.SerializerMethodField()
+    excuse_reason = serializers.SerializerMethodField()
 
     def get_check_in_time(self, obj) -> str:
         date = self.context.get('date')
@@ -345,6 +347,26 @@ class AttendanceByDateSerializer(serializers.Serializer):
             return min(100, max(0, activity))
         else:
             return 70 if has_late else 100
+
+    def get_is_excused(self, obj) -> bool:
+        date = self.context.get('date')
+        if not date:
+            return False
+        att = Attendance.objects.filter(
+            worker=obj,
+            date=date
+        ).first()
+        return att.is_excused if att else False
+
+    def get_excuse_reason(self, obj) -> str:
+        date = self.context.get('date')
+        if not date:
+            return None
+        att = Attendance.objects.filter(
+            worker=obj,
+            date=date
+        ).first()
+        return att.excuse_reason if att else None
 
 
 class WorkScheduleSerializer(serializers.ModelSerializer):

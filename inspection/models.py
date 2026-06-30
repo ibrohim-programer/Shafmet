@@ -79,7 +79,7 @@ class Attendance(models.Model):
         related_name="attendances",
         verbose_name="Xodim",
     )
-    date = models.DateField("Sana", auto_now_add=True)
+    date = models.DateField("Sana", default=timezone.now)
 
     check_in_time = models.DateTimeField("Kirish vaqti", null=True, blank=True)
     check_in_success = models.BooleanField("Kirish muvaffaqiyatli", default=True)
@@ -88,6 +88,8 @@ class Attendance(models.Model):
     check_out_success = models.BooleanField("Chiqish muvaffaqiyatli", null=True, blank=True)
 
     is_late = models.BooleanField("Kechikdimi", default=False)
+    is_excused = models.BooleanField("Sababli (Uzrli) kelmagan", default=False)
+    excuse_reason = models.TextField("Sabab izohi", null=True, blank=True)
 
     class Meta:
         verbose_name = "Davomat"

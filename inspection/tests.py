@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 from unittest.mock import patch
@@ -282,6 +283,48 @@ class DashboardAndAttendanceAPIV1Tests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["has_face_profile"])
+
+    def test_attendance_excuse(self):
+        # Create another worker who is absent today
+        absent_worker = get_user_model().objects.create_user(
+            phone="+998901112222",
+            password="workerpassword123",
+            full_name="Worker Absent",
+            branch="ichki_dokon",
+            salary=4000000.0,
+            balance=0.0,
+        )
+        
+        # 1. Update/Add excuse
+        excuse_data = {
+            "worker_id": absent_worker.id,
+            "date": str(timezone.now().date()),
+            "is_excused": True,
+            "excuse_reason": "Kasal bo'lganligi sababli"
+        }
+        
+        response = self.client.post(reverse("v1-attendance-excuse"), excuse_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["is_excused"])
+        self.assertEqual(response.data["excuse_reason"], "Kasal bo'lganligi sababli")
+
+        # Check in DB
+        attendance = Attendance.objects.get(worker=absent_worker, date=timezone.now().date())
+        self.assertTrue(attendance.is_excused)
+        self.assertEqual(attendance.excuse_reason, "Kasal bo'lganligi sababli")
+        self.assertFalse(attendance.check_in_success) # Created as absent
+
+        # 2. Update it again (PATCH)
+        update_data = {
+            "worker_id": absent_worker.id,
+            "date": str(timezone.now().date()),
+            "is_excused": False,
+            "excuse_reason": ""
+        }
+        response = self.client.patch(reverse("v1-attendance-excuse"), update_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["is_excused"])
+        self.assertIsNone(response.data["excuse_reason"])
 
 
 class WorkerDepartmentTests(APITestCase):

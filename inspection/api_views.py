@@ -420,6 +420,14 @@ class AttendanceAbsentAPIView(generics.ListAPIView):
         return Response(data)
 
     def format_response_data(self, queryset):
+        start_date, end_date = get_date_range(self.request)
+        user_ids = [user.id for user in queryset]
+        attendances = Attendance.objects.filter(
+            worker_id__in=user_ids,
+            date__range=[start_date, end_date]
+        )
+        att_map = {att.worker_id: att for att in attendances}
+
         return [
             {
                 "id": user.id,
@@ -428,7 +436,9 @@ class AttendanceAbsentAPIView(generics.ListAPIView):
                 "branch_display": user.get_branch_display(),
                 "phone": user.phone,
                 "balance": user.balance,
-                "is_active": user.is_active
+                "is_active": user.is_active,
+                "is_excused": att_map.get(user.id).is_excused if att_map.get(user.id) else False,
+                "excuse_reason": att_map.get(user.id).excuse_reason if att_map.get(user.id) else None
             } for user in queryset
         ]
 
@@ -671,3 +681,76 @@ class EmployeeUploadFaceAPIView(APIView):
             "user_id": employee.id,
             "has_face_profile": True
         }, status=status.HTTP_200_OK)
+
+
+class AttendanceExcuseAPIView(APIView):
+    permission_classes = [IsBossOrAdminOrManager]
+
+    @extend_schema(
+        tags=["Attendance V1"],
+        summary="Xodimning ma'lum sanadagi kelmaganlik sababini qo'shish yoki tahrirlash",
+        request=inline_serializer(
+            name="AttendanceExcuseRequest",
+            fields={
+                "worker_id": serializers.IntegerField(),
+                "date": serializers.DateField(required=False),
+                "is_excused": serializers.BooleanField(),
+                "excuse_reason": serializers.CharField(required=False, allow_blank=True, allow_null=True)
+            }
+        ),
+        responses={200: {"type": "object", "properties": {"detail": {"type": "string"}, "is_excused": {"type": "boolean"}, "excuse_reason": {"type": "string"}}}}
+    )
+    def handle_excuse(self, request):
+        worker_id = request.data.get("worker_id")
+        date_str = request.data.get("date")
+        is_excused = request.data.get("is_excused", False)
+        excuse_reason = request.data.get("excuse_reason", "")
+
+        if not worker_id:
+            return Response({"detail": "worker_id yuborilishi shart."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get worker
+        worker = get_object_or_404(User, pk=worker_id, role="worker")
+
+        # Parse date
+        if date_str:
+            try:
+                from django.utils.dateparse import parse_date
+                if isinstance(date_str, datetime.date):
+                    target_date = date_str
+                else:
+                    target_date = parse_date(date_str)
+                if not target_date:
+                    raise ValueError
+            except Exception:
+                return Response({"detail": "Sana formati noto'g'ri (YYYY-MM-DD bo'lishi kerak)."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            target_date = timezone.localtime().date()
+
+        # Try to find or create an Attendance record for this worker and date.
+        attendance, created = Attendance.objects.get_or_create(
+            worker=worker,
+            date=target_date,
+            defaults={
+                "check_in_success": False,
+                "check_in_time": None
+            }
+        )
+
+        attendance.is_excused = is_excused
+        attendance.excuse_reason = excuse_reason if is_excused else None
+        attendance.save()
+
+        return Response({
+            "detail": "Sabab muvaffaqiyatli saqlandi.",
+            "worker_id": worker.id,
+            "date": str(target_date),
+            "is_excused": attendance.is_excused,
+            "excuse_reason": attendance.excuse_reason
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        return self.handle_excuse(request)
+
+    def patch(self, request):
+        return self.handle_excuse(request)

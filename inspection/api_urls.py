@@ -10,6 +10,7 @@ from .api_views import (
     AttendanceExportAPIView,
     EmployeeListCreateAPIView,
     EmployeeUploadFaceAPIView,
+    AttendanceExcuseAPIView,
 )
 
 urlpatterns = [
@@ -23,6 +24,7 @@ urlpatterns = [
     path("attendance/late/", AttendanceLateAPIView.as_view(), name="v1-attendance-late"),
     path("attendance/absent/", AttendanceAbsentAPIView.as_view(), name="v1-attendance-absent"),
     path("attendance/export/", AttendanceExportAPIView.as_view(), name="v1-attendance-export"),
+    path("attendance/excuse/", AttendanceExcuseAPIView.as_view(), name="v1-attendance-excuse"),
 
     # Employee Management
     path("employees/", EmployeeListCreateAPIView.as_view(), name="v1-employees-list-create"),
