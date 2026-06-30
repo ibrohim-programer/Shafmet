@@ -324,7 +324,29 @@ class DashboardAndAttendanceAPIV1Tests(APITestCase):
         response = self.client.patch(reverse("v1-attendance-excuse"), update_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(response.data["is_excused"])
-        self.assertIsNone(response.data["excuse_reason"])
+        self.assertEqual(response.data["excuse_reason"], "Sababsiz")
+
+        # 3. Test length validation (>50 characters)
+        invalid_data = {
+            "worker_id": absent_worker.id,
+            "date": str(timezone.now().date()),
+            "is_excused": True,
+            "excuse_reason": "a" * 51
+        }
+        response = self.client.post(reverse("v1-attendance-excuse"), invalid_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("oshmasligi kerak", response.data["detail"])
+
+        # 4. Test empty excuse validation
+        empty_data = {
+            "worker_id": absent_worker.id,
+            "date": str(timezone.now().date()),
+            "is_excused": True,
+            "excuse_reason": "   "
+        }
+        response = self.client.post(reverse("v1-attendance-excuse"), empty_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("shart", response.data["detail"])
 
 
 class WorkerDepartmentTests(APITestCase):

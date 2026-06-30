@@ -727,6 +727,16 @@ class AttendanceExcuseAPIView(APIView):
         else:
             target_date = timezone.localtime().date()
 
+        # Validate excuse reason
+        if is_excused:
+            excuse_reason = str(excuse_reason or "").strip()
+            if not excuse_reason:
+                return Response({"detail": "Sababli deb belgilanganda sabab izohi kiritilishi shart."}, status=status.HTTP_400_BAD_REQUEST)
+            if len(excuse_reason) > 50:
+                return Response({"detail": "Sabab izohi 50 ta belgidan oshmasligi kerak."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            excuse_reason = "Sababsiz"
+
         # Try to find or create an Attendance record for this worker and date.
         attendance, created = Attendance.objects.get_or_create(
             worker=worker,
@@ -738,7 +748,7 @@ class AttendanceExcuseAPIView(APIView):
         )
 
         attendance.is_excused = is_excused
-        attendance.excuse_reason = excuse_reason if is_excused else None
+        attendance.excuse_reason = excuse_reason
         attendance.save()
 
         return Response({
