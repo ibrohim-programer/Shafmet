@@ -18,6 +18,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'full_name', 
             'branch', 
             'branch_display', 
+            'department',
             'salary', 
             'balance', 
             'avatar', 
@@ -28,7 +29,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'is_active', 
             'created_at'
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'created_at', 'work_start_time', 'work_end_time']
 
     def get_avatar_url(self, obj) -> str:
         request = self.context.get('request')
@@ -54,16 +55,27 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if not password:
             password = "Shafmet2026!"
         
+        department = validated_data.get('department')
+        if not department and validated_data.get('branch'):
+            from account.models import Lavozim
+            try:
+                department = Lavozim.objects.get(slug=validated_data.get('branch'))
+            except Lavozim.DoesNotExist:
+                pass
+        
+        if not department:
+            from account.models import Lavozim
+            department = Lavozim.objects.first()
+
         user = User.objects.create_user(
             phone=validated_data['phone'],
             password=password,
             full_name=validated_data['full_name'],
             branch=validated_data.get('branch', 'ichki_dokon'),
+            department=department,
             salary=validated_data.get('salary', 0.0),
             balance=validated_data.get('balance', 0.0),
             avatar=validated_data.get('avatar', None),
-            work_start_time=validated_data.get('work_start_time', None),
-            work_end_time=validated_data.get('work_end_time', None),
             role="worker"
         )
         return user

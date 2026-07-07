@@ -50,7 +50,7 @@ class RegisterSerializers(serializers.ModelSerializer):
             "is_active",
             "is_staff",
         ]
-        read_only_fields = ["id", "photo_url", "is_staff"]
+        read_only_fields = ["id", "photo_url", "is_staff", "work_start_time", "work_end_time"]
         extra_kwargs = {
             'password' : {'write_only' : True},
             'phone' : {
@@ -179,7 +179,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "is_staff",
             "created_at",
         ]
-        read_only_fields = ["id", "phone", "role", "is_active", "is_staff", "created_at", "salary", "balance"]
+        read_only_fields = ["id", "phone", "role", "is_active", "is_staff", "created_at", "salary", "balance", "work_start_time", "work_end_time"]
 
 
 class UserAdminSerializer(serializers.ModelSerializer):

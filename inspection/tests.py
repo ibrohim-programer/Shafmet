@@ -463,6 +463,7 @@ class WorkScheduleAndDailyAttendanceTests(APITestCase):
         )
 
     def test_admin_can_create_schedule(self):
+        WorkSchedule.objects.all().delete()
         self.client.force_authenticate(user=self.admin_user)
         data = {
             "departments": [self.dept_ichki.id],

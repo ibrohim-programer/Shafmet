@@ -27,8 +27,6 @@ class CreateWorkerSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
     photo = serializers.ImageField(write_only=True)
     department = serializers.ChoiceField(choices=[], required=True)
-    work_start_time = serializers.TimeField(required=True)
-    work_end_time = serializers.TimeField(required=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -78,8 +76,6 @@ class CreateWorkerSerializer(serializers.Serializer):
                 full_name=validated_data["full_name"],
                 role="worker",
                 department=department,
-                work_start_time=validated_data.get("work_start_time"),
-                work_end_time=validated_data.get("work_end_time"),
             )
             FaceProfile.objects.create(
                 user=user,

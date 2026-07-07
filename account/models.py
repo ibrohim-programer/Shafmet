@@ -107,6 +107,23 @@ class UserModel(AbstractBaseUser , PermissionsMixin):
                 self.department = Lavozim.objects.get(slug=self.branch)
             except Lavozim.DoesNotExist:
                 pass
+
+        # Resolve department/branch for workers before they are created
+        if not self.pk and self.role == 'worker':
+            department = self.department
+            if not department and self.branch:
+                try:
+                    department = Lavozim.objects.get(slug=self.branch)
+                except Lavozim.DoesNotExist:
+                    pass
+
+            if not department:
+                # Fallback to default or first department
+                department = Lavozim.objects.filter(is_default=True).first() or Lavozim.objects.first()
+                if department:
+                    self.department = department
+                    self.branch = department.slug
+
         super().save(*args, **kwargs)
     
     def __str__(self):

@@ -66,8 +66,8 @@ class RegisterViewTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["role"], "worker")
-        self.assertEqual(response.data["work_start_time"], "09:00:00")
-        self.assertEqual(response.data["work_end_time"], "18:00:00")
+        self.assertIsNone(response.data["work_start_time"])
+        self.assertIsNone(response.data["work_end_time"])
         self.assertFalse(response.data["is_active"])
         self.assertTrue(response.data["photo_url"].startswith("http://testserver/media/faces/"))
 
