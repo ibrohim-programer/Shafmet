@@ -148,7 +148,7 @@ class DashboardSummaryAPIView(APIView):
             elif not att.is_late:
                 user_status[uid] = "present" # Agar kun davomida bir marta bo'lsa ham vaqtida kelgan bo'lsa
                 
-        present = sum(1 for status in user_status.values() if status == "present")
+        present = len(user_status)
         late = sum(1 for status in user_status.values() if status == "late")
         absent = max(0, total_workers_count - len(user_status))
         
@@ -314,7 +314,6 @@ class AttendancePresentAPIView(generics.ListAPIView):
         
         queryset = Attendance.objects.filter(
             check_in_success=True,
-            is_late=False,
             date__range=[start_date, end_date]
         ).select_related('worker').order_by('-date', '-check_in_time')
         
