@@ -187,11 +187,10 @@ class DashboardChartsAPIView(APIView):
     def get(self, request):
         start_date, end_date = get_date_range(request)
         
-        branches = [
-            ("ichki_dokon", "Ichki Do'kon"),
-            ("tashqi_dokon", "Tashqi Do'kon"),
-            ("personal", "Personallar")
-        ]
+        from account.models import Lavozim
+        # Dynamically fetch all departments marked for display in diagram
+        lavozimlar = Lavozim.objects.filter(show_in_diagram=True)
+        branches = [(l.slug, l.name) for l in lavozimlar]
         
         results = []
         for branch_code, branch_name in branches:
