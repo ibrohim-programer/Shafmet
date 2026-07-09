@@ -194,7 +194,26 @@ class AttendanceSerializer(serializers.ModelSerializer):
         return None
 
     def get_turi_chiqish(self, obj) -> str:
-        return "Ketgan" if obj.check_out_time else None
+        if obj.check_out_time:
+            end_time = None
+            worker = obj.worker
+            if worker.work_end_time:
+                end_time = worker.work_end_time
+            else:
+                schedule = None
+                if worker.department:
+                    from inspection.models import WorkSchedule
+                    schedule = WorkSchedule.objects.filter(departments=worker.department).first()
+                if schedule:
+                    end_time = schedule.end_time
+            
+            if end_time:
+                from django.utils import timezone
+                check_out_local = timezone.localtime(obj.check_out_time).time()
+                if check_out_local < end_time:
+                    return "Erta ketgan"
+            return "Ketgan"
+        return None
 
     def get_umumiy_soat(self, obj) -> str:
         return obj.total_hours
