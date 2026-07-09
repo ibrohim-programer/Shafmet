@@ -863,9 +863,9 @@ class LavozimListCreateView(generics.ListCreateAPIView):
 
 @extend_schema(
     tags=["Lavozimlar"],
-    summary="Lavozimni o'chirish (Faqat Admin, standart bo'limlar o'chirilmaydi)",
+    summary="Lavozimni o'chirish yoki tahrirlash (Faqat Admin, standart bo'limlar tahrirlanmaydi/o'chirilmaydi)",
 )
-class LavozimDeleteView(generics.DestroyAPIView):
+class LavozimDeleteView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Lavozim.objects.all()
     serializer_class = LavozimSerializer
     permission_classes = [IsAdminUser]
@@ -878,6 +878,15 @@ class LavozimDeleteView(generics.DestroyAPIView):
                 status=status.HTTP_403_FORBIDDEN
             )
         return super().destroy(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_default:
+            return Response(
+                {"error": "Bu standart lavozimni tahrirlash taqiqlangan."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().update(request, *args, **kwargs)
 
 
 @extend_schema(
