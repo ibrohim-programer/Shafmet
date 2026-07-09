@@ -178,7 +178,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Attendance
         fields = ['rasm', 'ism', 'sana', 'kelgan_vaqt', 'turi_kirish', 'status_kirish',
-                  'ketgan_vaqt', 'turi_chiqish', 'status_chiqish', 'umumiy_soat']
+                  'ketgan_vaqt', 'turi_chiqish', 'status_chiqish', 'umumiy_soat', 'is_late']
 
     def get_rasm(self, obj) -> str:
         request = self.context.get('request')
@@ -189,7 +189,9 @@ class AttendanceSerializer(serializers.ModelSerializer):
         return None
 
     def get_turi_kirish(self, obj) -> str:
-        return "Ishda" if obj.check_in_time else None
+        if obj.check_in_time:
+            return "Kechikkan" if obj.is_late else "Ishda"
+        return None
 
     def get_turi_chiqish(self, obj) -> str:
         return "Ketgan" if obj.check_out_time else None
